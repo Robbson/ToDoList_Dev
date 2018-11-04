@@ -726,14 +726,11 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 		// ----------------------------- Begin *MOD* Robin -------------------------------
 		// Auto indent by copying spaces/tabs from current (old) line to the next one
 		// when user hits Enter/Return key
-		// -> Now we don't use pointer operations and no memcpy anymore so it works
-		//		flawlessly on unicode, too (and it's also easier + more secure this way)
-		// -> We also check for Ctrl Key not pressed while return is used because
-		//		Ctrl+Return disables Auto Indent (so júst normal behavior)
-
-		// Note: 
-		// - Windows uses "\r\n" for new line and not only "\n" !
-		// - I have to handle the line breaks myself when I return true as result
+		// - We also check for Ctrl Key not pressed while return is used because
+		//	 Ctrl+Return disables Auto Indent (so just normal behavior)
+		// - Windows uses "\r\n" for new line and not only "\n"
+		// - we have to handle the line breaks when returning true as result
+		// - now we also remove any spaces/tabs right of the cursor
 
 		if(pMsg->wParam==VK_RETURN && !bCtrl)
 		{
@@ -741,7 +738,7 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 
 			// Get the begin index and length of the whole current (old) line
 			// -> nBegin is the character index from the whole richtext document string 
-			//		relative to the start position at topf-left, so it can be a very big value 
+			//		relative to the start position at topf-left, so it can be a very large value 
 			nBegin = this->LineIndex(-1); 
 			nLength = this->LineLength(-1);
 
@@ -752,18 +749,26 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 			{
 				// Get the character index of the line end
 				nEnd = nBegin + nLength;
-				
-				//TRACE(L"#line = %d\n",LineFromChar(-1));
+
+				// Get the cursor position by getting the selection 
+				long selBegin, selEnd;
+				GetSel(selBegin, selEnd);
+
+				// Remove anything that is selected so we don't try to indent anything that doesn't exist anymore
+				if(selBegin!=selEnd){
+					Clear();
+					GetSel(selBegin, selEnd); // Get it again for processing of rest
+				}
 
 				// Put the whole line into a string (without '\0')
-				// -> We have to use the 3 param version from GetLine, otherwise we would need to
-				//		care about the leading word which specifies the string length
 				CString tempLine;
-				int res = GetLine(LineFromChar(-1),tempLine.GetBuffer(nLength), nLength);
-				tempLine.ReleaseBuffer(nLength);
+				int nMinLength = max(nLength,sizeof(int)); // Now GetLine req. buffer sizes of at least 4 bytes
+				int res = GetLine(LineFromChar(-1),tempLine.GetBuffer(nMinLength), nMinLength);
+				tempLine.ReleaseBuffer(nMinLength); // Updates CString internal length
 				
+				//TRACE(L"#line = %d\n",LineFromChar(-1));
 				//TRACE(L"chars copied = %d\n",res);
-				//TRACE(L"'%s'\n",tempLine);
+				//TRACE(L"'%s'\n", (LPCTSTR)tempLine);
 
 				// Get the leading tabs and spaces (if any)
 				CString leadingSpace = tempLine.SpanIncluding(L" \t");
@@ -772,17 +777,22 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 				long leadingLength = leadingSpace.GetLength();
 				if(leadingLength>0)
 				{
-					// Get the cursor position by getting the selection
-					long selBegin, selEnd;
-					GetSel(selBegin, selEnd);
+					// Check if the cursor inside the leading space so we have to REMOVE any
+					// indents on the right side of the cursor in the old line to 
+					// prevent strange cursor shifting each new line
+					int cursorPosInLine = selBegin - nBegin;
 
-					// If there is really something selected then we need to delete it on return
-					if(selBegin!=selEnd){
+					if(leadingLength - cursorPosInLine > 0) {
+						int selBegin = nBegin + cursorPosInLine;
+						int selEnd = selBegin + (leadingLength - cursorPosInLine);
+						SetSel(selBegin, selEnd);
 						Clear();
-						GetSel(selBegin, selEnd); // Get it again for processing of rest
+
+						// Now we also have to remove it from leading space (otherwise we would have to reprocess the new modified line)
+						leadingSpace = leadingSpace.Mid(0, cursorPosInLine);
 					}
 
-					// NOTE: We have to add all the things we want at the current cursor position
+					// We have to add all the things we want at the current cursor position
 					// to get the expected result
 					// -> the added line break split the line so we have a new one!
 
