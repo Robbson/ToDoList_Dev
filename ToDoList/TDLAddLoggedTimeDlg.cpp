@@ -136,7 +136,7 @@ BOOL CTDLAddLoggedTimeDlg::OnInitDialog()
 	CTDLDialog::OnInitDialog();
 
 	CLocalizer::EnableTranslation(::GetDlgItem(*this, IDC_TASKTITLE), FALSE);
-	
+
 	if (m_bShowAddTimeToTimeSpent)
 	{
 		GetDlgItem(IDAPPLY)->EnableWindow(FALSE);

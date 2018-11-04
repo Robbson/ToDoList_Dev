@@ -47,7 +47,8 @@ CTDLCommentsCtrl::CTDLCommentsCtrl(BOOL bLabel, int nComboLenDLU, const CContent
 		sLabel.LoadString(IDS_TDC_FIELD_COMMENTS);
 		int nLabelLen = 40;
 
-		AddRCControl(_T("CONTROL"), WC_STATIC, sLabel, SS_CENTERIMAGE, 0, 0, 1, nLabelLen, 12, IDC_COMBOLABEL);
+		// *MOD* Robin: We don't want the label to select the comment format
+		//AddRCControl(_T("CONTROL"), WC_STATIC, sLabel, SS_CENTERIMAGE, 0, 0, 1, nLabelLen, 12, IDC_COMBOLABEL);
 
 		nComboOffsetDLU = (nLabelLen + 3);
 	}
@@ -108,6 +109,9 @@ BOOL CTDLCommentsCtrl::OnInitDialog()
 
 	if (!m_sComboPrompt.IsEmpty())
 		m_mgrPrompts.SetComboPrompt(m_cbCommentsFmt, m_sComboPrompt);
+
+	// *MOD* Robin: Don't show the select comment format combo
+	m_cbCommentsFmt.ShowWindow(FALSE);
 
 	return TRUE;  // return TRUE unless you set the focus to a control
 	// EXCEPTION: OCX Property Pages should return FALSE
@@ -329,6 +333,10 @@ void CTDLCommentsCtrl::CalcCommentsCtrlRect(CRect& rCtrl, int cx, int cy) const
 
 	CRect rCombo = GetCtrlRect(IDC_COMBO);
 	rCtrl.top = (rCombo.bottom + CDlgUnits(this).ToPixelsY(2));
+
+	// *MOD* Robin: Enlarge the top border of the text window
+	rCtrl.top-=25;
+
 }
 
 LRESULT CTDLCommentsCtrl::OnCommentsChange(WPARAM wParam, LPARAM lParam)

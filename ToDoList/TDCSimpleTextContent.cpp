@@ -221,6 +221,56 @@ LRESULT CTDLSimpleTextContentCtrl::OnSetFont(WPARAM wp, LPARAM lp)
 	// being sent
 	CAutoFlag af(m_bAllowNotify, FALSE);
 
+	// ----------------------------- Begin *MOD* Robin -------------------------------
+	// Change RichEditTextCtrl to use tabs in size of 2 spaces
+	// -> works now with any set font
+	// -> TODO: Make the tab length configurable by the user
+	// -> TODO: Make it available to the WordPad like rich text control, too
+
+	// The dc we get here has never the right values (also after OnSetFont from super class)
+	// -> So we have to set the font to the dc ourself to get correct values
+	CClientDC dc(this);
+	SelectObject(dc, (HFONT)wp);
+
+	// Debug output only
+	//CSize size = dc.GetTextExtent(L"O", 1);
+	//TRACE(L"%d %d\n",size.cx,size.cy);
+
+	int charWidth = dc.GetTextExtent(L"O", 1).cx; // it's 8 in case of Lucida 10pt
+	int logpixelsx = dc.GetDeviceCaps(LOGPIXELSX);
+	int spaceWidth = (1440/logpixelsx)*charWidth*2;
+
+	// Even when I set all 32 tab stops: After those 32 we get the old tab length again
+	// -> but this is the same with all programs working with MS RichTextEdit control like WinPad32
+	// -> that's one of the reasons why apps like Notepad2 using Scintilla RichText Editor
+	long tabs[MAX_TAB_STOPS];
+	for(int i=0;i<MAX_TAB_STOPS;i++)
+		tabs[i]=spaceWidth*(i)+120; // +120 because of our dxStartIdent which also counts!
+
+	PARAFORMAT2 pf2;
+
+	// NEW: Get the previous structure data first, this is maybe a cleaner solution
+	this->GetParaFormat(pf2);
+
+	pf2.cbSize = sizeof(PARAFORMAT2);
+	pf2.dwMask = PFM_TABSTOPS|PFM_STARTINDENT;
+	pf2.dxStartIndent = 120; // ok, now we have some space on the left side
+	pf2.cTabCount = MAX_TAB_STOPS; // specify in how many elements of the rgxTabs array we have set a tab position
+	//pf2.dySpaceBefore = 120; // does nothing, wird wohl ebensowenig angenommen
+														 // No longer used since 6.8.10 anyway because of introducing doubled line spacing
+
+	// Not supported (only for printing in Word or so)
+	/*
+	pf2.wBorderSpace=60;
+	pf2.wBorderWidth=0; // twips
+	pf2.wBorders=4|64; // top only, we already have it on left bei ident
+	*/
+
+	memcpy(pf2.rgxTabs,tabs,sizeof(tabs));
+	this->SetParaFormat(pf2);
+
+	// ----------------------------- End *MOD* Robin -------------------------------
+
 	return CUrlRichEditCtrl::OnSetFont(wp, lp);
 }
 
@@ -673,6 +723,89 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 		BOOL bAlt = Misc::IsKeyPressed(VK_MENU);
 		BOOL bEnabled = !(GetStyle() & ES_READONLY);
 
+		// ----------------------------- Begin *MOD* Robin -------------------------------
+		// Auto indent by copying spaces/tabs from current (old) line to the next one
+		// when user hits Enter/Return key
+		// -> Now we don't use pointer operations and no memcpy anymore so it works
+		//		flawlessly on unicode, too (and it's also easier + more secure this way)
+		// -> We also check for Ctrl Key not pressed while return is used because
+		//		Ctrl+Return disables Auto Indent (so júst normal behavior)
+
+		// Note: 
+		// - Windows uses "\r\n" for new line and not only "\n" !
+		// - I have to handle the line breaks myself when I return true as result
+
+		if(pMsg->wParam==VK_RETURN && !bCtrl)
+		{
+			int nBegin, nLength, nEnd;
+
+			// Get the begin index and length of the whole current (old) line
+			// -> nBegin is the character index from the whole richtext document string 
+			//		relative to the start position at topf-left, so it can be a very big value 
+			nBegin = this->LineIndex(-1); 
+			nLength = this->LineLength(-1);
+
+			// Don't go any further if the current string is empty so the default handling takes place
+			if(nLength==0)return false;
+
+			if(nBegin!=-1)
+			{
+				// Get the character index of the line end
+				nEnd = nBegin + nLength;
+				
+				//TRACE(L"#line = %d\n",LineFromChar(-1));
+
+				// Put the whole line into a string (without '\0')
+				// -> We have to use the 3 param version from GetLine, otherwise we would need to
+				//		care about the leading word which specifies the string length
+				CString tempLine;
+				int res = GetLine(LineFromChar(-1),tempLine.GetBuffer(nLength), nLength);
+				tempLine.ReleaseBuffer(nLength);
+				
+				//TRACE(L"chars copied = %d\n",res);
+				//TRACE(L"'%s'\n",tempLine);
+
+				// Get the leading tabs and spaces (if any)
+				CString leadingSpace = tempLine.SpanIncluding(L" \t");
+
+				// Check if leadingSpace is not empty so Auto Indent has to be activated 
+				long leadingLength = leadingSpace.GetLength();
+				if(leadingLength>0)
+				{
+					// Get the cursor position by getting the selection
+					long selBegin, selEnd;
+					GetSel(selBegin, selEnd);
+
+					// If there is really something selected then we need to delete it on return
+					if(selBegin!=selEnd){
+						Clear();
+						GetSel(selBegin, selEnd); // Get it again for processing of rest
+					}
+
+					// NOTE: We have to add all the things we want at the current cursor position
+					// to get the expected result
+					// -> the added line break split the line so we have a new one!
+
+					// Insert a line break in front of the leadingSpace buffer to have it
+					// on the next line where we want it
+					leadingSpace = L"\r\n"+leadingSpace;
+
+					// Insert leadingSpace to the current line, it has a line break
+					// so we also get a new line (the rest is still there afterwards)
+					// -> Now supporting Undo by using the second parameter!
+					this->ReplaceSel(leadingSpace.GetBuffer(leadingLength), TRUE);
+					leadingSpace.ReleaseBuffer(leadingLength);
+
+					return TRUE;
+				}
+
+				// Otherwise do default processing (which works for breaking strings)
+				else 
+					return false;
+			}
+		}
+		// ----------------------------- End *MOD* Robin -------------------------------
+
 		if (bCtrl && !bAlt)
 		{
 			switch (pMsg->wParam)
@@ -722,6 +855,18 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 		}
 		else if (bEnabled && (pMsg->wParam == VK_TAB))
 		{
+			// ----------------------------- Begin *MOD* Robin ----------------------------------------
+			// Here we check if there is more than one line selected so we don't just replace it by a tab but
+			// indent all selected lines one tab to the right (or back when shift is pressed, too)
+			// -> Now we use the old approach that's mor flexible than dan.g's version
+			// -> in Practice we need to add a tab on every line the selection touches!
+
+			// TODO:
+			// - When we later make tab length configurable, then we need to pay attention to it here 
+			//	 when it comes to remove spaces when shift tab
+
+			// dan.g's version only works in one direction...
+			/*
 			CHARRANGE cr;
 			GetSel(cr);
 			
@@ -745,6 +890,60 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 
 			ReplaceSel(sSel, TRUE);
 			SetSel(cr);
+			*/
+
+			BOOL bShift = Misc::ModKeysArePressed(MKS_SHIFT);
+			
+			// Check if there is anything selected, otherwise we just do the default behavior and insert a tab
+			if(GetSelectionType()!=SEL_EMPTY)
+			{
+				// Check for lines, if we don't find anyone (no '\n') then just also replace selection by tab
+				long nBegin, nEnd;
+				GetSel(nBegin, nEnd);
+			
+				// Get the range of line indices in the current selection
+				int firstLine = LineFromChar(nBegin);
+				int lastLine = LineFromChar(nEnd-1); // -1, otherwise we also get the next line when top-down selected
+
+				// Check if it's more than one line otherwise we just replace the selection by tab (like default)
+				if(firstLine<lastLine)
+				{
+					for(int i=firstLine;i<=lastLine;i++)
+					{
+						int lineBegin = LineIndex(i);
+						
+						// When shift pressed, then we kill a tab, one space or two spaces if available
+						// -> normally this depends on the set tab length which is currently fixed to 2
+						if(bShift)
+						{
+							TCHAR lineTest[2];
+							GetLine(i,lineTest,2);
+							if((lineTest[0]==' ')&&(lineTest[1]==' ')) // first check this to kill as much spaces as possible
+								SetSel(lineBegin,lineBegin+2);
+							else if((lineTest[0]=='\t')||(lineTest[0]==' '))
+								SetSel(lineBegin,lineBegin+1);
+							else
+								continue; // don't kill anything in this line
+
+							ReplaceSel(L"",TRUE);
+						}
+						else // here we add a tab at the begin of the line
+						{
+							SetSel(lineBegin,lineBegin);
+							ReplaceSel(L"\t",TRUE);
+						}
+					}
+
+					// Select all lines again so we can tab them again if user wants it
+					SetSel(LineIndex(firstLine),LineIndex(lastLine)+LineLength(LineIndex(lastLine)));
+				}
+				else
+					ReplaceSel(L"\t",TRUE);
+			}
+			else
+				ReplaceSel(L"\t", TRUE); // Default behaviour
+			
+			// ----------------------------- End *MOD* Robin ----------------------------------------
 
 			return TRUE;
 		}
