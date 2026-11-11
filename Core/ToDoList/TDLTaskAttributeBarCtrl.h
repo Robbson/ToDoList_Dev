@@ -15,6 +15,7 @@
 #include "..\shared\MaskEdit.h"
 #include "..\shared\TimeComboBox.h"
 #include "..\shared\TimeEdit.h"
+#include "..\shared\Icon.h"
 
 #include "ITDCAttributeEditor.h"
 #include "TDLPriorityComboBox.h"
@@ -94,6 +95,7 @@ class CTDLTaskAttributeBarCtrl : public CRuntimeDlg, public ITDCAttributeEditor
 public:
 	CTDLTaskAttributeBarCtrl(const CToDoCtrlData& data,
 							 const CContentMgr& mgrContent,
+							 const CTDCImageList& ilIcons,
 							 const TDCCOLEDITVISIBILITY& vis,
 							 const CTDCCustomAttribDefinitionArray& aCustAttribDefs);
 	virtual ~CTDLTaskAttributeBarCtrl();
@@ -176,6 +178,7 @@ public:
 protected:
 	const CToDoCtrlData& m_data;
 	const CContentMgr& m_mgrContent;
+	const CTDCImageList& m_ilIcons;
 	const TDCCOLEDITVISIBILITY& m_vis;
 	const CTDCCustomAttribDefinitionArray& m_aCustAttribDefs;
 	CTDCMultiTasker m_multitasker;
@@ -201,6 +204,7 @@ protected:
 	TDCRECURRENCE m_tRecurrence;
 	CStringArray m_aFileLinks;
 	CTDCDependencyArray m_aDepends;
+	CTDCCustomControlArray m_aCustomControls;
 
 	CEnEdit m_eExternalID;
 	CMaskEdit m_eCost;
@@ -217,11 +221,17 @@ protected:
 	CTDLRiskComboBox m_cbRisk;
 	CTDLRecurringTaskEdit m_eRecurrence;
 	CTDLTaskDependencyEdit m_eDependency;
+	CIcon m_iconTrackTime, m_iconAddTime, m_iconLink;
 
 protected:
 	void BuildControls();
 	void ShowHideControls();
+	void ShowHideCustomControls();
 	void ReposControls();
+	void ReposCustomControls(int nStartCell, int nCols, int nCellH, int nCtrlW, int nLabelH, int nCtrlH, int nHSpacing, const CRect& rClient);
+	int GetVisibleCustomControlCount() const;
+	void RebuildCustomControls();
+	BOOL GetCustomAttributeID(UINT nCtrlID, TDC_ATTRIBUTE& nAttribID) const;
 	void RefreshAllValues();
 	void ClearValues();
 	void EnableDisableControls();
@@ -241,14 +251,19 @@ protected:
 	virtual BOOL OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult);
 
 	afx_msg void OnSize(UINT nType, int cx, int cy);
+	afx_msg void OnDestroy();
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 	afx_msg LRESULT OnColourChanged(WPARAM wParam, LPARAM lParam);
+	afx_msg LRESULT OnEEBtnClick(WPARAM wParam, LPARAM lParam);
 	DECLARE_MESSAGE_MAP()
 };
 
 /////////////////////////////////////////////////////////////////////////////
 
 #endif // AFX_TDLTASKATTRIBUTEBARCTRL_H__9A6B5E51_4A2D_4E7E_9F3B_5C2D8A1B7C10__INCLUDED_
+
+
+
 
 

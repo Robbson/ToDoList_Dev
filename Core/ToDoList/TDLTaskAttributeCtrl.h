@@ -122,6 +122,7 @@ protected:
 	CEnToolBar m_toolbar;
 	CToolbarHelper m_tbHelper;
 	CTDLTaskAttributeListCtrl m_lcAttributes;
+	const CTDCImageList& m_ilIcons;
 	CTDLTaskAttributeBarCtrl* m_pLegacyBar;
 	CMenuIconMgr m_mgrMenuIcons;
 	TDC_ATTRIBUTEEDITORMODE m_nEditorMode;
@@ -190,3 +191,4 @@ protected:
 // Microsoft Visual C++ will insert additional declarations immediately before the previous line.
 
 #endif // !defined(AFX_TDLTASKATTRIBUTEDLGCTRL_H__4173F4AA_2026_4FE1_B669_E6631D12C8F1__INCLUDED_)
+

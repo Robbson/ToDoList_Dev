@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Unicode Debug|Win32">
@@ -243,6 +243,7 @@
     <ClCompile Include="..\ToDoList\TDLStylesheetParamConfigDlg.cpp" />
     <ClCompile Include="..\ToDoList\TDLTaskAttributeCtrl.cpp" />
     <ClCompile Include="..\ToDoList\TDLTaskAttributeBarCtrl.cpp" />
+    <ClCompile Include="..\ToDoList\TDCCustomEditAttributeUIHelper.cpp" />
     <ClCompile Include="..\ToDoList\TDLTaskAttributeListCtrl.cpp" />
     <ClCompile Include="..\ToDoList\TDLTaskComboBox.cpp" />
     <ClCompile Include="..\ToDoList\TDLTaskCtrlBase.cpp" />
@@ -421,6 +422,7 @@
     <ClInclude Include="..\ToDoList\ITDCAttributeEditor.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeCtrl.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeBarCtrl.h" />
+    <ClInclude Include="..\ToDoList\TDCCustomEditAttributeUIHelper.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeListCtrl.h" />
     <ClInclude Include="..\ToDoList\TDLTaskComboBox.h" />
     <ClInclude Include="..\ToDoList\TDLTaskCtrlBase.h" />

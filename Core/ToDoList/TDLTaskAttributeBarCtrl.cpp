@@ -14,6 +14,7 @@
 #include "..\shared\wclassdefines.h"
 
 #include "TDCDialogHelper.h"
+#include "TDCCustomEditAttributeUIHelper.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -112,11 +113,13 @@ static const int NUM_LEGACYCTRLITEMS = _countof(LEGACYCTRLITEMS);
 
 CTDLTaskAttributeBarCtrl::CTDLTaskAttributeBarCtrl(const CToDoCtrlData& data,
 												   const CContentMgr& mgrContent,
+												   const CTDCImageList& ilIcons,
 												   const TDCCOLEDITVISIBILITY& vis,
 												   const CTDCCustomAttribDefinitionArray& aCustAttribDefs)
 	:
 	m_data(data),
 	m_mgrContent(mgrContent),
+	m_ilIcons(ilIcons),
 	m_vis(vis),
 	m_aCustAttribDefs(aCustAttribDefs),
 	m_multitasker(data, mgrContent),
@@ -152,9 +155,11 @@ CTDLTaskAttributeBarCtrl::~CTDLTaskAttributeBarCtrl()
 
 BEGIN_MESSAGE_MAP(CTDLTaskAttributeBarCtrl, CRuntimeDlg)
 	ON_WM_SIZE()
+	ON_WM_DESTROY()
 	ON_WM_ERASEBKGND()
 	ON_WM_CTLCOLOR()
 	ON_MESSAGE(CPN_SELENDOK, OnColourChanged)
+	ON_REGISTERED_MESSAGE(WM_EE_BTNCLICK, OnEEBtnClick)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -249,10 +254,21 @@ BOOL CTDLTaskAttributeBarCtrl::OnInitDialog()
 	m_spinPercent.SetRange(0, 100);
 	m_spinPercent.SetBuddy(GetDlgItem(IDC_TDLAB_PERCENT));
 
+	m_iconTrackTime.Load(IDI_TIMETRACK, 16, FALSE);
+	m_iconAddTime.Load(IDI_ADD_LOGGED_TIME, 16, FALSE);
+	m_iconLink.Load(IDI_DEPENDS_LINK, 16, FALSE);
+
+	m_eTimeSpent.InsertButton(1, IDC_TDLAB_TIME_TRACK, m_iconTrackTime, CEnString(IDS_TDC_STARTSTOPCLOCK), 15);
+	m_eTimeSpent.InsertButton(2, IDC_TDLAB_ADD_TIME, m_iconAddTime, CEnString(IDS_TDC_ADDLOGGEDTIME), 15);
+
+	m_eDependency.AddButton(IDC_TDLAB_DEPENDS_EDIT, _T("..."), CEnString(IDS_OPTIONS));
+	m_eDependency.AddButton(IDC_TDLAB_DEPENDS_LINK, m_iconLink, _T("Select dependency"));
+
 	SetNumPriorityRiskLevels(m_nNumPriorityRiskLevels);
 	SetPercentDoneIncrement(m_nPercentDoneIncrement);
 	SetPriorityColors(m_aPriorityColors);
 	PopulateAutoLists();
+	RebuildCustomControls();
 	ShowHideControls();
 
 	return TRUE;
@@ -315,6 +331,9 @@ BOOL CTDLTaskAttributeBarCtrl::OnCommand(WPARAM wParam, LPARAM lParam)
 		UINT nCode = HIWORD(wParam);
 		TDC_ATTRIBUTE nAttrib = GetAttributeID(nID);
 
+		if ((nAttrib == TDCA_NONE) && !GetCustomAttributeID(nID, nAttrib))
+			nAttrib = TDCA_NONE;
+
 		if (nAttrib != TDCA_NONE)
 		{
 			switch (nCode)
@@ -323,6 +342,7 @@ BOOL CTDLTaskAttributeBarCtrl::OnCommand(WPARAM wParam, LPARAM lParam)
 			case EN_KILLFOCUS:
 			case CBN_SELCHANGE:
 			case CBN_KILLFOCUS:
+			case BN_CLICKED:
 				NotifyParent(nAttrib);
 				return TRUE;
 			}
@@ -341,6 +361,9 @@ BOOL CTDLTaskAttributeBarCtrl::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* p
 		if (pNMHDR->code == DTN_DATETIMECHANGE)
 		{
 			TDC_ATTRIBUTE nAttrib = GetAttributeID(pNMHDR->idFrom);
+
+			if ((nAttrib == TDCA_NONE) && !GetCustomAttributeID(pNMHDR->idFrom, nAttrib))
+				nAttrib = TDCA_NONE;
 
 			if (nAttrib != TDCA_NONE)
 			{
@@ -374,8 +397,59 @@ LRESULT CTDLTaskAttributeBarCtrl::OnColourChanged(WPARAM /*wParam*/, LPARAM /*lP
 	return 0;
 }
 
+LRESULT CTDLTaskAttributeBarCtrl::OnEEBtnClick(WPARAM wParam, LPARAM lParam)
+{
+	CWnd* pTDC = (GetParent() ? GetParent()->GetParent() : NULL);
+
+	if (!pTDC)
+		return 0;
+
+	UINT nCtrlID = (UINT)wParam;
+	UINT nBtnID = (UINT)lParam;
+
+	if (nCtrlID == IDC_TDLAB_TIMESPENT)
+	{
+		switch (nBtnID)
+		{
+		case IDC_TDLAB_TIME_TRACK:
+			pTDC->SendMessage(WM_TDCM_TOGGLETIMETRACKING);
+			break;
+
+		case IDC_TDLAB_ADD_TIME:
+			pTDC->SendMessage(WM_TDCM_ADDTIMETOLOGFILE);
+			break;
+		}
+	}
+	else if (nCtrlID == IDC_TDLAB_DEPENDS)
+	{
+		switch (nBtnID)
+		{
+		case IDC_TDLAB_DEPENDS_LINK:
+			pTDC->SendMessage(WM_TDCM_SELECTDEPENDENCIES);
+			break;
+
+		case IDC_TDLAB_DEPENDS_EDIT:
+			pTDC->SendMessage(WM_TDCM_EDITTASKATTRIBUTE, TDCA_DEPENDENCY);
+			break;
+		}
+	}
+
+	return 0;
+}
+
 void CTDLTaskAttributeBarCtrl::OnCustomAttributesChange()
 {
+	RebuildCustomControls();
+	ShowHideCustomControls();
+	RefreshAllValues();
+	ReposControls();
+}
+
+void CTDLTaskAttributeBarCtrl::OnDestroy()
+{
+	CTDCCustomEditAttributeUIHelper::CleanupControls(m_aCustomControls, this);
+
+	CRuntimeDlg::OnDestroy();
 }
 
 void CTDLTaskAttributeBarCtrl::OnAttributeVisibilityChange()
@@ -444,9 +518,106 @@ void CTDLTaskAttributeBarCtrl::ShowHideControls()
 			m_spinPercent.ShowWindow(bShow ? SW_SHOW : SW_HIDE);
 	}
 
+	ShowHideCustomControls();
 	ReposControls();
 }
 
+void CTDLTaskAttributeBarCtrl::ShowHideCustomControls()
+{
+	for (int nCtrl = 0; nCtrl < m_aCustomControls.GetSize(); nCtrl++)
+	{
+		const CUSTOMATTRIBCTRLITEM& ctrl = m_aCustomControls[nCtrl];
+
+		if (GetDlgItem(ctrl.nCtrlID))
+			GetDlgItem(ctrl.nCtrlID)->ShowWindow(SW_SHOW);
+
+		if (GetDlgItem(ctrl.nLabelID))
+			GetDlgItem(ctrl.nLabelID)->ShowWindow(SW_SHOW);
+
+		if (ctrl.HasBuddy())
+		{
+			if (GetDlgItem(ctrl.nBuddyCtrlID))
+				GetDlgItem(ctrl.nBuddyCtrlID)->ShowWindow(SW_SHOW);
+
+			if (GetDlgItem(ctrl.nBuddyLabelID))
+				GetDlgItem(ctrl.nBuddyLabelID)->ShowWindow(SW_SHOW);
+		}
+	}
+}
+
+int CTDLTaskAttributeBarCtrl::GetVisibleCustomControlCount() const
+{
+	int nCount = 0;
+
+	for (int nCtrl = 0; nCtrl < m_aCustomControls.GetSize(); nCtrl++)
+	{
+		nCount++;
+
+		if (m_aCustomControls[nCtrl].HasBuddy())
+			nCount++;
+	}
+
+	return nCount;
+}
+
+void CTDLTaskAttributeBarCtrl::ReposCustomControls(int nStartCell, int nCols, int nCellH, int nCtrlW, int nLabelH, int nCtrlH, int nHSpacing, const CRect& /*rClient*/)
+{
+	int nCell = nStartCell;
+
+	for (int nCtrl = 0; nCtrl < m_aCustomControls.GetSize(); nCtrl++)
+	{
+		const CUSTOMATTRIBCTRLITEM& ctrl = m_aCustomControls[nCtrl];
+
+		int nX = ((nCell % nCols) * (nCtrlW + nHSpacing));
+		int nY = ((nCell / nCols) * nCellH);
+
+		if (GetDlgItem(ctrl.nLabelID))
+			GetDlgItem(ctrl.nLabelID)->MoveWindow(nX, nY, nCtrlW, nLabelH);
+
+		if (GetDlgItem(ctrl.nCtrlID))
+			GetDlgItem(ctrl.nCtrlID)->MoveWindow(nX, nY + nLabelH, nCtrlW, nCtrlH);
+
+		nCell++;
+
+		if (ctrl.HasBuddy())
+		{
+			nX = ((nCell % nCols) * (nCtrlW + nHSpacing));
+			nY = ((nCell / nCols) * nCellH);
+
+			if (GetDlgItem(ctrl.nBuddyLabelID))
+				GetDlgItem(ctrl.nBuddyLabelID)->MoveWindow(nX, nY, nCtrlW, nLabelH);
+
+			if (GetDlgItem(ctrl.nBuddyCtrlID))
+				GetDlgItem(ctrl.nBuddyCtrlID)->MoveWindow(nX, nY + nLabelH, nCtrlW, nCtrlH);
+
+			nCell++;
+		}
+	}
+}
+
+void CTDLTaskAttributeBarCtrl::RebuildCustomControls()
+{
+	CTDCCustomEditAttributeUIHelper::CleanupControls(m_aCustomControls, this);
+	CTDCCustomEditAttributeUIHelper::RebuildEditControls(this,
+														 m_aCustAttribDefs,
+														 m_ilIcons,
+														 IDC_TDLAB_FILEPATH,
+														 FALSE,
+														 m_aCustomControls);
+}
+
+BOOL CTDLTaskAttributeBarCtrl::GetCustomAttributeID(UINT nCtrlID, TDC_ATTRIBUTE& nAttribID) const
+{
+	CUSTOMATTRIBCTRLITEM ctrl;
+
+	if (CTDCCustomEditAttributeUIHelper::GetControl(nCtrlID, m_aCustomControls, ctrl))
+	{
+		nAttribID = ctrl.nAttributeID;
+		return TRUE;
+	}
+
+	return FALSE;
+}
 void CTDLTaskAttributeBarCtrl::ReposControls()
 {
 	if (!GetSafeHwnd())
@@ -474,11 +645,13 @@ void CTDLTaskAttributeBarCtrl::ReposControls()
 			nVisible++;
 	}
 
+	nVisible += GetVisibleCustomControlCount();
+
 	if (!nVisible)
 		return;
 
 	int nCols = max(1, rClient.Width() / (nCtrlW + nHSpacing));
-	int nRow = 0, nCol = 0;
+	int nRow = 0, nCol = 0, nCell = 0;
 
 	for (int nCtrl = 0; nCtrl < NUM_LEGACYCTRLITEMS; nCtrl++)
 	{
@@ -507,7 +680,7 @@ void CTDLTaskAttributeBarCtrl::ReposControls()
 				if (m_spinPercent.GetSafeHwnd())
 					m_spinPercent.MoveWindow(nX + nCtrlW - nSpinW, nY + nLabelH, nSpinW, nCtrlH);
 			}
-			else if (ctrl.nCtrlID == IDC_TDLAB_FILEPATH)
+			else if ((ctrl.nCtrlID == IDC_TDLAB_FILEPATH) && (GetVisibleCustomControlCount() == 0))
 			{
 				pCtrl->MoveWindow(nX, nY + nLabelH, (rClient.right - nX), nCtrlH);
 			}
@@ -522,7 +695,11 @@ void CTDLTaskAttributeBarCtrl::ReposControls()
 			nCol = 0;
 			nRow++;
 		}
+
+		nCell++;
 	}
+
+	ReposCustomControls(nCell, nCols, nCellH, nCtrlW, nLabelH, nCtrlH, nHSpacing, rClient);
 }
 
 int CTDLTaskAttributeBarCtrl::GetRequiredHeight(int cx) const
@@ -534,6 +711,8 @@ int CTDLTaskAttributeBarCtrl::GetRequiredHeight(int cx) const
 		if (m_vis.IsEditFieldVisible(LEGACYCTRLITEMS[nCtrl].nAttributeID))
 			nVisible++;
 	}
+
+	nVisible += GetVisibleCustomControlCount();
 
 	if (!nVisible)
 		return 0;
@@ -561,6 +740,8 @@ int CTDLTaskAttributeBarCtrl::GetRequiredWidth(int cy) const
 		if (m_vis.IsEditFieldVisible(LEGACYCTRLITEMS[nCtrl].nAttributeID))
 			nVisible++;
 	}
+
+	nVisible += GetVisibleCustomControlCount();
 
 	if (!nVisible)
 		return 0;
@@ -710,6 +891,9 @@ void CTDLTaskAttributeBarCtrl::SetPercentDoneIncrement(int nAmount)
 void CTDLTaskAttributeBarCtrl::SetTimeTrackTaskID(DWORD dwTaskID)
 {
 	m_dwTimeTrackTaskID = dwTaskID;
+
+	if (m_eTimeSpent.GetSafeHwnd())
+		m_eTimeSpent.CheckButton(IDC_TDLAB_TIME_TRACK, (dwTaskID != 0));
 }
 
 void CTDLTaskAttributeBarCtrl::SetNumPriorityRiskLevels(int nNumLevels)
@@ -890,6 +1074,19 @@ void CTDLTaskAttributeBarCtrl::RefreshAllValues()
 		m_cbRisk.SetSelectedRisk(m_nRisk);
 		m_eRecurrence.SetRecurrenceOptions(m_tRecurrence);
 
+		CTDCCustomAttributeDataMap mapCustomData;
+
+		for (int nDef = 0; nDef < m_aCustAttribDefs.GetSize(); nDef++)
+		{
+			const TDCCUSTOMATTRIBUTEDEFINITION& def = m_aCustAttribDefs[nDef];
+			TDCCADATA data;
+
+			if (m_multitasker.GetTasksCustomAttributeData(m_aSelectedTaskIDs, def, data))
+				mapCustomData.SetAt(def.sUniqueID, data);
+		}
+
+		CTDCCustomEditAttributeUIHelper::UpdateControls(this, m_aCustomControls, m_aCustAttribDefs, mapCustomData);
+
 		UpdateData(FALSE);
 	}
 
@@ -921,6 +1118,8 @@ void CTDLTaskAttributeBarCtrl::ClearValues()
 	m_cbPriority.SetSelectedPriority(FM_NOPRIORITYORRISK);
 	m_cbRisk.SetSelectedRisk(FM_NOPRIORITYORRISK);
 	m_eRecurrence.SetRecurrenceOptions(m_tRecurrence);
+
+	CTDCCustomEditAttributeUIHelper::ClearControls(this, m_aCustomControls, m_aCustAttribDefs);
 
 	SetCtrlDate(m_dtcStart, COleDateTime());
 	SetCtrlDate(m_dtcDue, COleDateTime());
@@ -969,6 +1168,20 @@ void CTDLTaskAttributeBarCtrl::EnableDisableControls()
 
 		if (ctrl.nCtrlID == IDC_TDLAB_PERCENT)
 			m_spinPercent.EnableWindow(bEnableCtrl);
+	}
+
+	for (int nCust = 0; nCust < m_aCustomControls.GetSize(); nCust++)
+	{
+		const CUSTOMATTRIBCTRLITEM& ctrl = m_aCustomControls[nCust];
+
+		if (CWnd* pCtrl = GetDlgItem(ctrl.nCtrlID))
+			pCtrl->EnableWindow(bEnable);
+
+		if (ctrl.HasBuddy())
+		{
+			if (CWnd* pBuddy = GetDlgItem(ctrl.nBuddyCtrlID))
+				pBuddy->EnableWindow(bEnable);
+		}
 	}
 }
 
@@ -1160,15 +1373,39 @@ BOOL CTDLTaskAttributeBarCtrl::GetRecurrence(TDCRECURRENCE& tr) const
 	return TRUE;
 }
 
-BOOL CTDLTaskAttributeBarCtrl::GetCustomAttributeData(const CString& /*sAttribID*/, TDCCADATA& /*data*/, BOOL /*bFormatted*/) const
+BOOL CTDLTaskAttributeBarCtrl::GetCustomAttributeData(const CString& sAttribID, TDCCADATA& data, BOOL /*bFormatted*/) const
 {
-	return FALSE;
+	CUSTOMATTRIBCTRLITEM ctrl;
+
+	if (!CTDCCustomEditAttributeUIHelper::GetControl(sAttribID, m_aCustomControls, ctrl))
+		return FALSE;
+
+	TDCCADATA dataPrev, dataValue;
+	TDCCAUI_UPDATERESULT nResult = CTDCCustomEditAttributeUIHelper::GetControlData(this, ctrl, m_aCustAttribDefs, dataPrev, dataValue);
+
+	if (nResult == TDCCAUIRES_FAIL)
+		return FALSE;
+
+	data = dataValue;
+	return TRUE;
 }
 
 int CTDLTaskAttributeBarCtrl::GetCustomAttributeAutoListData(const CString& /*sAttribID*/, CStringArray& /*aItems*/) const
 {
 	return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

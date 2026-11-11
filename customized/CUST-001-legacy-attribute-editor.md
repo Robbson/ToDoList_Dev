@@ -401,18 +401,39 @@ Interaction fixes:
   calculated from children. For leaf tasks, the spin control now uses the configured
   `PercentDoneIncrement` step size.
 
-Known Phase 2 limitations (Phase 3 or later):
+Phase 3 implemented:
 
-- Custom attributes are not yet created in the legacy bar; the property grid remains the
-  only editor for them.
-- The time-spent clock/add-time buttons and the dependency picker/link buttons are not
-  ported yet; fields are directly editable.
+- Restored the v8.2 edit-side custom-attribute helper as
+  `TDCCustomEditAttributeUIHelper.*` (renamed from `CTDCCustomAttributeUIHelper`,
+  adapted to current enums/APIs).
+- The legacy bar now creates custom edit controls for enabled custom attributes and
+  includes them in layout, sizing and enable/disable handling.
+- Values are refreshed through `CTDCMultiTasker::GetTasksCustomAttributeData()` and
+  `CTDCCustomEditAttributeUIHelper::UpdateControls()`.
+- Custom edits are returned through `GetCustomAttributeData()` using the helper’s
+  `GetControlData()`, so `CToDoCtrl::UpdateTask()` applies them with undo and
+  notifications.
+- Custom controls participate in the same notification path (`WM_TDCN_ATTRIBUTEEDITED`).
+- Added the time-spent clock/add-time buttons and dependency edit/link buttons. They send
+  the existing `WM_TDCM_TOGGLETIMETRACKING`, `WM_TDCM_ADDTIMETOLOGFILE`,
+  `WM_TDCM_EDITTASKATTRIBUTE` (dependency) and `WM_TDCM_SELECTDEPENDENCIES` messages to
+  `CToDoCtrl`.
+- The file-link control only expands across the remaining row when there are no custom
+  fields after it.
+
+Remaining limitations:
+
+- Custom-attribute visibility is currently “all enabled definitions”; there is no
+  per-field legacy-bar visibility editor yet.
+- Custom auto-list data collection (`GetCustomAttributeAutoListData`) is not yet wired
+  back into the bar.
+- File-link thumbnails in custom attributes are forced off.
+- The date-picker checkbox painting issue remains postponed.
 - No per-mode persistence of legacy-bar ordering/state yet.
 - Read-only/auto-list-read-only and locked-task UI states are not visually enforced; the
   data layer still rejects edits.
-- Layout is a straightforward responsive grid, not a pixel-identical port of the v8.2
-  auto-reposition algorithm.
+- Layout is a responsive grid, not a pixel-identical port of the v8.2 auto-reposition
+  algorithm.
 
-Next: Phase 3 — custom attributes and the remaining auxiliary buttons.
 
 

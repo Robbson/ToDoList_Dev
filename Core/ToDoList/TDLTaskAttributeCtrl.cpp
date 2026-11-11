@@ -38,7 +38,8 @@ CTDLTaskAttributeCtrl::CTDLTaskAttributeCtrl(const CToDoCtrlData& data,
 				   vis, 
 				   rems, 
 				   aCustAttribDefs),
-	m_pLegacyBar(new CTDLTaskAttributeBarCtrl(data, mgrContent, vis, aCustAttribDefs)),
+	m_ilIcons(ilIcons),
+	m_pLegacyBar(new CTDLTaskAttributeBarCtrl(data, mgrContent, ilIcons, vis, aCustAttribDefs)),
 	m_nEditorMode(TDCAEM_GRID),
 	m_crThemeBack(CLR_NONE)
 {
@@ -625,3 +626,4 @@ BOOL CTDLTaskAttributeCtrl::GetCustomAttributeData(const CString& sAttribID, TDC
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
+
