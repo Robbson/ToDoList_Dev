@@ -452,6 +452,9 @@
     <ClCompile Include="..\ToDoList\TDLTaskAttributeCtrl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\ToDoList\TDLTaskAttributeBarCtrl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\ToDoList\TDCMenuIconMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -950,6 +953,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ToDoList\TDLTaskAttributeCtrl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ToDoList\TDLTaskAttributeBarCtrl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ToDoList\TDCMenuIconMgr.h">

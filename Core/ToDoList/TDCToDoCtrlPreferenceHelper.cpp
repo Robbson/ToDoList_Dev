@@ -103,6 +103,7 @@ void CTDCToDoCtrlPreferenceHelper::UpdateToDoCtrlPrefs(CFilteredToDoCtrl& tdc, c
 	// layout
 	tdc.SetLayoutPositions((TDC_UILOCATION)prefs.GetControlsPos(), 
 							(TDC_UILOCATION)prefs.GetCommentsPos());
+	tdc.SetAttributeEditorMode(prefs.GetUseLegacyAttributeEditor() ? TDCAEM_LEGACY : TDCAEM_GRID);
 
 	// info tips
 	tdc.SetMaxInfotipCommentsLength(prefs.GetMaxInfoTipCommentsLength());

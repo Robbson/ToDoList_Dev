@@ -251,6 +251,10 @@ There is **no persistent dependency pane**; dependencies are an edit field/colum
 through `CTDLTaskDependencyEditDlg`. Time tracking is a frame-level modeless dialog
 (`CTDLTimeTrackerDlg`), not part of the tasklist layout.
 
+The attributes pane is `CTDLTaskAttributeCtrl`, which currently hosts the property-grid
+editor `CTDLTaskAttributeListCtrl`. It is the intended seam for the planned optional
+legacy (v8.2-style) attribute bar; see [customized/index.md](customized/index.md), `CUST-001`.
+
 ---
 
 ## 5. Data model
@@ -537,3 +541,4 @@ Recommended order for a new developer or analysis pass:
 6. **Plugin contracts are versioned and discovered in the exe directory.** Adding a
    plugin requires a matching factory export and interface version check.
 7. **Built-in formats/content must work without any plugin DLLs**; plugins are additive.
+

@@ -547,7 +547,7 @@ BEGIN
     RTEXT           "0/64 tools remaining",IDC_REMAININGCOUNT,129,146,263,8
 END
 
-IDD_PREFUI_PAGE DIALOG DISCARDABLE  0, 0, 395, 679
+IDD_PREFUI_PAGE DIALOG DISCARDABLE  0, 0, 395, 695
 STYLE WS_CHILD
 FONT 8, "Tahoma"
 BEGIN
@@ -643,6 +643,9 @@ BEGIN
     CONTROL         "Right &align attribute labels",IDC_RIGHTALIGNLABELS,
                     "Button",BS_AUTOCHECKBOX | NOT WS_VISIBLE | WS_DISABLED | 
                     WS_TABSTOP,363,14,25,17
+    CONTROL         "Use &legacy attribute editor (v8.2 style)",
+                    IDC_USELEGACYATTRIBUTEEDITOR,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,675,381,10
 END
 
 IDD_PREFUITASKLIST_PAGE DIALOG DISCARDABLE  0, 0, 394, 600

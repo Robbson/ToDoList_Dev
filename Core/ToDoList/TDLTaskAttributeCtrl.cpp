@@ -4,6 +4,7 @@
 #include "stdafx.h"
 #include "resource.h"
 #include "TDLTaskAttributeCtrl.h"
+#include "TDLTaskAttributeBarCtrl.h"
 #include "tdcstruct.h"
 
 #include "..\shared\Localizer.h"
@@ -36,13 +37,17 @@ CTDLTaskAttributeCtrl::CTDLTaskAttributeCtrl(const CToDoCtrlData& data,
 				   ilIcons, 
 				   vis, 
 				   rems, 
-				   aCustAttribDefs)
+				   aCustAttribDefs),
+	m_pLegacyBar(NULL),
+	m_nEditorMode(TDCAEM_GRID),
+	m_crThemeBack(CLR_NONE)
 {
 	m_toolbar.SetBorders(0, 0, 0, 1);
 }
 
 CTDLTaskAttributeCtrl::~CTDLTaskAttributeCtrl()
 {
+	delete m_pLegacyBar;
 }
 
 BEGIN_MESSAGE_MAP(CTDLTaskAttributeCtrl, CWnd)
@@ -127,8 +132,21 @@ BOOL CTDLTaskAttributeCtrl::Create(CWnd* pParent, UINT nID, const CRect& rPos)
 
 void CTDLTaskAttributeCtrl::SetUITheme(const CUIThemeFile& theme)
 {
+	m_crThemeBack = theme.crAppBackLight;
+
 	m_toolbar.SetBackgroundColor(theme.crToolbarLight);
 	m_toolbar.SetHotColor(theme.crToolbarHot);
+
+	if (m_pLegacyBar)
+		m_pLegacyBar->SetUITheme(theme);
+}
+
+void CTDLTaskAttributeCtrl::SetBackgroundColor(COLORREF crBack)
+{
+	m_crThemeBack = crBack;
+
+	if (m_pLegacyBar)
+		m_pLegacyBar->SetBackgroundColor(crBack);
 }
 
 // Message handlers
@@ -154,6 +172,8 @@ int CTDLTaskAttributeCtrl::OnCreate(LPCREATESTRUCT pCreateStruct)
 	m_mgrMenuIcons.Initialize(this);
 	m_mgrMenuIcons.AddImages(m_toolbar);
 
+	ShowActiveEditor();
+
 	return 0;
 }
 
@@ -161,7 +181,100 @@ void CTDLTaskAttributeCtrl::OnSetFocus(CWnd* pOldWnd)
 {
 	CWnd::OnSetFocus(pOldWnd);
 
-	m_lcAttributes.SetFocus();
+	if (IsLegacyEditor() && m_pLegacyBar && m_pLegacyBar->GetSafeHwnd())
+		m_pLegacyBar->SetFocus();
+	else
+		m_lcAttributes.SetFocus();
+}
+
+BOOL CTDLTaskAttributeCtrl::HasFocus() const
+{
+	if (IsLegacyEditor() && m_pLegacyBar)
+		return m_pLegacyBar->HasFocus();
+
+	return m_lcAttributes.HasFocus();
+}
+
+void CTDLTaskAttributeCtrl::SetEditorMode(TDC_ATTRIBUTEEDITORMODE nMode)
+{
+	if (nMode != TDCAEM_GRID)
+		nMode = TDCAEM_LEGACY;
+
+	m_nEditorMode = nMode;
+	ShowActiveEditor();
+}
+
+BOOL CTDLTaskAttributeCtrl::EnsureLegacyBar()
+{
+	if (m_pLegacyBar && m_pLegacyBar->GetSafeHwnd())
+		return TRUE;
+
+	if (!m_pLegacyBar)
+		m_pLegacyBar = new CTDLTaskAttributeBarCtrl;
+
+	if (!m_pLegacyBar->Create(this,
+							  IDC_TASKATTRIBUTEBAR,
+							  CRect(0, 0, 0, 0)))
+	{
+		delete m_pLegacyBar;
+		m_pLegacyBar = NULL;
+		return FALSE;
+	}
+
+	m_pLegacyBar->SetBackgroundColor(m_crThemeBack);
+	return TRUE;
+}
+
+void CTDLTaskAttributeCtrl::ShowActiveEditor()
+{
+	if (!GetSafeHwnd())
+		return;
+
+	BOOL bLegacy = IsLegacyEditor();
+
+	if (bLegacy)
+		EnsureLegacyBar();
+
+	if (m_pLegacyBar && m_pLegacyBar->GetSafeHwnd())
+		m_pLegacyBar->ShowWindow(bLegacy ? SW_SHOW : SW_HIDE);
+
+	if (m_toolbar.GetSafeHwnd())
+		m_toolbar.ShowWindow(bLegacy ? SW_HIDE : SW_SHOW);
+
+	if (m_lcAttributes.GetSafeHwnd())
+		m_lcAttributes.ShowWindow(bLegacy ? SW_HIDE : SW_SHOW);
+
+	LayoutActiveEditor();
+}
+
+void CTDLTaskAttributeCtrl::LayoutActiveEditor()
+{
+	if (!GetSafeHwnd())
+		return;
+
+	CRect rClient;
+	GetClientRect(rClient);
+
+	if (IsLegacyEditor())
+	{
+		if (m_pLegacyBar && m_pLegacyBar->GetSafeHwnd())
+			m_pLegacyBar->MoveWindow(rClient);
+	}
+	else if (m_lcAttributes.GetSafeHwnd())
+	{
+		int nTBHeight = m_toolbar.Resize(rClient.Width());
+		m_lcAttributes.MoveWindow(0,
+								  nTBHeight,
+								  rClient.Width(),
+								  rClient.Height() - nTBHeight);
+	}
+}
+
+void CTDLTaskAttributeCtrl::OnSize(UINT nType, int cx, int cy)
+{
+	LayoutActiveEditor();
+
+	CWnd::OnSize(nType, cx, cy);
 }
 
 void CTDLTaskAttributeCtrl::OnCustomAttributesChange()
@@ -172,17 +285,6 @@ void CTDLTaskAttributeCtrl::OnCustomAttributesChange()
 void CTDLTaskAttributeCtrl::OnAttributeVisibilityChange()
 {
 	m_lcAttributes.OnAttributeVisibilityChange();
-}
-
-void CTDLTaskAttributeCtrl::OnSize(UINT nType, int cx, int cy)
-{
-	if (m_lcAttributes.GetSafeHwnd())
-	{
-		int nTBHeight = m_toolbar.Resize(cx);
-		m_lcAttributes.MoveWindow(0, nTBHeight, cx, cy - nTBHeight);
-	}
-
-	CWnd::OnSize(nType, cx, cy);
 }
 
 void CTDLTaskAttributeCtrl::OnToggleGrouping()
@@ -237,6 +339,9 @@ void CTDLTaskAttributeCtrl::UpdateToolbarButtons()
 
 void CTDLTaskAttributeCtrl::OnContextMenu(CWnd* pWnd, CPoint pos)
 {
+	if (IsLegacyEditor())
+		return;
+
 	int nRow, nCol;
 
 	if (!m_lcAttributes.GetCurSel(nRow, nCol))

@@ -41,6 +41,7 @@ public:
 	BOOL GetRTLComments() const { return m_bRTLComments; }
 	PUIP_LOCATION GetCommentsPos() const { return m_nCommentsPos; }
 	PUIP_LOCATION GetControlsPos() const { return m_nCtrlsPos; }
+	BOOL GetUseLegacyAttributeEditor() const { return m_bUseLegacyAttributeEditor; }
 	BOOL GetMultiSelFilters() const { return m_bMultiSelFilters; }
 	BOOL GetRestoreTasklistFilters() const { return m_bRestoreTasklistFilters; }
 	BOOL GetReFilterOnModify() const { return m_bAutoRefilter; }
@@ -84,6 +85,7 @@ protected:
 	BOOL	m_bStackCommentsAboveEditFields;
 	BOOL	m_bIncludeWebLinksInCommentsPaste;
 	BOOL	m_bSortDoneTasksAtBottom;
+	BOOL	m_bUseLegacyAttributeEditor;
 
 	PUIP_NEWTASKPOS	m_nNewTaskPos;
 	PUIP_NEWTASKPOS	m_nNewSubtaskPos;

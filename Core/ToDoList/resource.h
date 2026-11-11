@@ -786,6 +786,8 @@
 #define IDC_SNOOZEUNTILDATE             1489
 #define IDC_SNOOZEUNTILTIME             1490
 #define IDC_INCLUDEWEBLINKINCOMMENTSPASTE 1492
+#define IDC_USELEGACYATTRIBUTEEDITOR    1603
+#define IDC_TASKATTRIBUTEBAR            1604
 #define IDC_TODIVIDER                   1493
 #define IDC_PRESERVECOMMENTS            1494
 #define IDC_MERGEBYTITLE                1494
@@ -2617,7 +2619,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        340
 #define _APS_NEXT_COMMAND_VALUE         34789
-#define _APS_NEXT_CONTROL_VALUE         1603
+#define _APS_NEXT_CONTROL_VALUE         1605
 #define _APS_NEXT_SYMED_VALUE           108
 #endif
 #endif

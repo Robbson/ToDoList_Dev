@@ -2,7 +2,8 @@
 
 Starting point for agents working in this repository. Read this first, then
 [ARCHITECTURE.md](ARCHITECTURE.md). Detailed references:
-[PROJECT_SCOPE.md](PROJECT_SCOPE.md) and [DATA_MODEL.md](DATA_MODEL.md).
+[PROJECT_SCOPE.md](PROJECT_SCOPE.md), [DATA_MODEL.md](DATA_MODEL.md) and
+[customized/index.md](customized/index.md) (all intentional divergences from upstream).
 
 ## Repository at a glance
 
@@ -128,6 +129,18 @@ Notes:
 - After code changes, build the affected configuration and run `TDLTest` when practical.
 - Never commit unless the user explicitly asks.
 
+## Customization workflow
+
+This repository is a customized fork. Before changing upstream behaviour:
+
+1. Add or update an entry under `customized/` (index plus `CUST-nnn-<keywords>.md`) with the goal,
+   the upstream starting point, files, risks and tests.
+2. Prefer an isolated adapter/new class over editing giant upstream files; keep changes
+   easy to re-apply after upstream merges.
+3. Mark the status (`Proposed`, `In progress`, `Done`, `Deferred`) and update it when the
+   change is implemented or revised.
+4. Default to preserving upstream behaviour unless the user explicitly asks to change it.
+
 ## Analysis output expectations
 
 When asked to analyze or document, prefer producing/updating the root docs:
@@ -135,7 +148,9 @@ When asked to analyze or document, prefer producing/updating the root docs:
 - `ARCHITECTURE.md` — system structure, flows, invariants.
 - `DATA_MODEL.md` — task/attribute/persistence details.
 - `PROJECT_SCOPE.md` — included/excluded projects and dependencies.
+- `customized/index.md` + `customized/CUST-nnn-*.md` — all customized behaviour and its rationale.
 - `AGENTS.md` — this file.
 
 Include concrete `path:line` references for key claims. Keep raw file dumps out of
 documentation; summarize with evidence.
+

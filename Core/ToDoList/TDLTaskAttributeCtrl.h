@@ -20,6 +20,7 @@ class CToDoCtrlData;
 class CTDCImageList;
 class CContentMgr;
 class CUIThemeFile;
+class CTDLTaskAttributeBarCtrl;
 
 /////////////////////////////////////////////////////////////////////////////
 // CTDLTaskAttributeDlgCtrl window
@@ -39,7 +40,11 @@ public:
 public:
 	BOOL Create(CWnd* pParent, UINT nID, const CRect& rPos = CRect(0, 0, 0, 0));
 	void SetUITheme(const CUIThemeFile& theme);
-	BOOL HasFocus() const { return m_lcAttributes.HasFocus(); }
+	BOOL HasFocus() const;
+
+	void SetEditorMode(TDC_ATTRIBUTEEDITORMODE nMode);
+	TDC_ATTRIBUTEEDITORMODE GetEditorMode() const { return m_nEditorMode; }
+	BOOL IsLegacyEditor() const { return (m_nEditorMode == TDCAEM_LEGACY); }
 
 	void SetDefaultAutoListData(const TDCAUTOLISTDATA& tldDefault);
 	void SetAutoListData(TDC_ATTRIBUTE nAttribID, const TDCAUTOLISTDATA& tld);
@@ -112,7 +117,10 @@ protected:
 	CEnToolBar m_toolbar;
 	CToolbarHelper m_tbHelper;
 	CTDLTaskAttributeListCtrl m_lcAttributes;
+	CTDLTaskAttributeBarCtrl* m_pLegacyBar;
 	CMenuIconMgr m_mgrMenuIcons;
+	TDC_ATTRIBUTEEDITORMODE m_nEditorMode;
+	COLORREF m_crThemeBack;
 
 protected:
 	virtual int DoModal() { return IDCANCEL; }
@@ -164,6 +172,10 @@ protected:
 
 protected:
 	void UpdateToolbarButtons();
+	void LayoutActiveEditor();
+	BOOL EnsureLegacyBar();
+	void ShowActiveEditor();
+	void SetBackgroundColor(COLORREF crBack);
 };
 
 /////////////////////////////////////////////////////////////////////////////

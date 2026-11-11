@@ -70,6 +70,7 @@ void CPreferencesUIPage::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_TASKVIEWVISIBILITY, m_lbTaskViews);
 	DDX_Check(pDX, IDC_SORTDONETASKSATBOTTOM, m_bSortDoneTasksAtBottom);
 	DDX_Check(pDX, IDC_INCLUDEWEBLINKINCOMMENTSPASTE, m_bIncludeWebLinksInCommentsPaste);
+	DDX_Check(pDX, IDC_USELEGACYATTRIBUTEEDITOR, m_bUseLegacyAttributeEditor);
 
 	m_cbThemes.DDX(pDX, m_sUIThemeFile);
 }
@@ -159,6 +160,7 @@ void CPreferencesUIPage::LoadPreferences(const IPreferences* pPrefs, LPCTSTR szK
 	m_bStackEditFieldsAndComments = pPrefs->GetProfileInt(szKey, _T("StackEditFieldsAndComments"), TRUE);
 	m_bStackCommentsAboveEditFields = pPrefs->GetProfileInt(szKey, _T("StackCommentsAboveEditFields"), TRUE);
 	m_bIncludeWebLinksInCommentsPaste = pPrefs->GetProfileInt(szKey, _T("IncludeWebLinksInCommentsPaste"), TRUE);
+	m_bUseLegacyAttributeEditor = pPrefs->GetProfileInt(szKey, _T("AttributeEditorMode"), 0) != 0;
 
 	// First time handling of new 'Attribute Editor'
 	// If the attributes were previously on the bottom move them to the side
@@ -206,6 +208,7 @@ void CPreferencesUIPage::SavePreferences(IPreferences* pPrefs, LPCTSTR szKey) co
 	pPrefs->WriteProfileInt(szKey, _T("RTLComments"), m_bRTLComments);
 	pPrefs->WriteProfileInt(szKey, _T("VertComments"), m_nCommentsPos);
 	pPrefs->WriteProfileInt(szKey, _T("VertControls"), m_nCtrlsPos);
+	pPrefs->WriteProfileInt(szKey, _T("AttributeEditorMode"), (m_bUseLegacyAttributeEditor ? 1 : 0));
 	pPrefs->WriteProfileInt(szKey, _T("MultiSelFilters"), m_bMultiSelFilters);
 	pPrefs->WriteProfileInt(szKey, _T("RestoreTasklistFilters"), m_bRestoreTasklistFilters);
 	pPrefs->WriteProfileInt(szKey, _T("AutoRefilter"), m_bAutoRefilter);

@@ -240,6 +240,7 @@ public:
 	BOOL GetRTLComments() const { return m_pageUI.GetRTLComments(); }
 	PUIP_LOCATION GetCommentsPos() const { return m_pageUI.GetCommentsPos(); }
 	PUIP_LOCATION GetControlsPos() const { return m_pageUI.GetControlsPos(); }
+	BOOL GetUseLegacyAttributeEditor() const { return m_pageUI.GetUseLegacyAttributeEditor(); }
 	BOOL GetMultiSelFilters() const { return m_pageUI.GetMultiSelFilters(); }
 	BOOL GetRestoreTasklistFilters() const { return m_pageUI.GetRestoreTasklistFilters(); }
 	BOOL GetReFilterOnModify() const { return m_pageUI.GetReFilterOnModify(); }

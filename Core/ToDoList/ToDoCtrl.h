@@ -428,6 +428,7 @@ public:
 	COleDateTime GetLastTaskModified() const { return m_dtLastTaskMod; }
 	void RefreshReminders();
 	void SetLayoutPositions(TDC_UILOCATION nControlsPos, TDC_UILOCATION nCommentsPos);
+	void SetAttributeEditorMode(TDC_ATTRIBUTEEDITORMODE nMode);
 	void SetCompletionStatus(const CString& sStatus);
 	COleDateTime GetEarliestDueDate() const { return m_calculator.GetEarliestDueDate(); } // entire tasklist
 

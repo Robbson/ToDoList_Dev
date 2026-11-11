@@ -730,6 +730,11 @@ void CToDoCtrl::SetLayoutPositions(TDC_UILOCATION nAttribsPos, TDC_UILOCATION nC
 	}
 }
 
+void CToDoCtrl::SetAttributeEditorMode(TDC_ATTRIBUTEEDITORMODE nMode)
+{
+	m_ctrlAttributes.SetEditorMode(nMode);
+}
+
 BOOL CToDoCtrl::OnEraseBkgnd(CDC* pDC)
 {
 	// clip out our children
