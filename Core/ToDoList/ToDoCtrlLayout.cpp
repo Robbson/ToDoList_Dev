@@ -38,6 +38,8 @@ CToDoCtrlLayout::CToDoCtrlLayout(CWnd* pParent, CWnd* pAttributes, CWnd* pCommen
 	m_bStackCommentsAbove(TRUE),
 	m_bRebuildingLayout(FALSE),
 	m_nMaxState(TDCMS_NORMAL),
+	m_bAttributesFixed(FALSE),
+	m_nAttributesFixedSize(0),
 	m_splitterHorz(0, SSP_HORZ, 30, SPLITSIZE),
 	m_splitterVert(0, SSP_VERT, 30, SPLITSIZE),
 	m_bFirstLayout(TRUE)
@@ -117,6 +119,12 @@ void CToDoCtrlLayout::SetSplitBarColor(COLORREF color)
 	m_splitterVert.SetBarColor(color);
 }
 
+void CToDoCtrlLayout::SetSplitBarBackgroundColor(COLORREF color)
+{
+	m_splitterHorz.SetBarBackgroundColor(color);
+	m_splitterVert.SetBarBackgroundColor(color);
+}
+
 void CToDoCtrlLayout::Resize(int cx, int cy)
 {
 	CRect rect(0, 0, cx, cy);
@@ -126,6 +134,8 @@ void CToDoCtrlLayout::Resize(int cx, int cy)
 		// Resize the primary splitter only
 		if (!ResizeIfRoot(m_splitterHorz, rect))
 			ResizeIfRoot(m_splitterVert, rect);
+
+		EnforceAttributesSize();
 	}
 	else
 	{
@@ -143,6 +153,166 @@ void CToDoCtrlLayout::Resize(int cx, int cy)
 			break;
 		}
 	}
+}
+
+void CToDoCtrlLayout::SetAttributesFixedSize(BOOL bFixed, int nSize)
+{
+	m_bAttributesFixed = bFixed;
+	m_nAttributesFixedSize = max(0, nSize);
+
+	CSimpleSplitter* pSplitter = NULL;
+	int nPane = -1;
+
+	if (FindAttributesSplitter(pSplitter, nPane))
+	{
+		pSplitter->SetResizable(!bFixed);
+
+		int nPanes = pSplitter->GetPaneCount();
+
+		for (int nBar = 0; nBar < (nPanes - 1); nBar++)
+			pSplitter->SetBarVisible(nBar, !bFixed);
+
+		if (bFixed)
+		{
+			if (nPane > 0)
+				pSplitter->SetBarVisible(nPane - 1, FALSE);
+
+			if (nPane < (nPanes - 1))
+				pSplitter->SetBarVisible(nPane, FALSE);
+		}
+	}
+
+	if (m_bAttributesFixed)
+		EnforceAttributesSize();
+}
+
+BOOL CToDoCtrlLayout::FindAttributesSplitter(CSimpleSplitter*& pSplitter, int& nPane) const
+{
+	pSplitter = NULL;
+	nPane = -1;
+
+	if (m_splitterHorz.GetSafeHwnd())
+	{
+		nPane = m_splitterHorz.FindPane(m_pAttributes);
+
+		if (nPane != -1)
+		{
+			pSplitter = const_cast<CSimpleSplitter*>(&m_splitterHorz);
+			return TRUE;
+		}
+	}
+
+	if (m_splitterVert.GetSafeHwnd())
+	{
+		nPane = m_splitterVert.FindPane(m_pAttributes);
+
+		if (nPane != -1)
+		{
+			pSplitter = const_cast<CSimpleSplitter*>(&m_splitterVert);
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+BOOL CToDoCtrlLayout::FindTasksSplitter(CSimpleSplitter*& pSplitter, int& nPane) const
+{
+	pSplitter = NULL;
+	nPane = -1;
+
+	CSimpleSplitter* aSplitters[2] = { const_cast<CSimpleSplitter*>(&m_splitterHorz),
+									   const_cast<CSimpleSplitter*>(&m_splitterVert) };
+
+	for (int nSplitter = 0; nSplitter < 2; nSplitter++)
+	{
+		CSimpleSplitter* pCandidate = aSplitters[nSplitter];
+
+		if (!pCandidate->GetSafeHwnd())
+			continue;
+
+		for (int n = 0; n < pCandidate->GetPaneCount(); n++)
+		{
+			if (pCandidate->GetPane(n) == NULL)
+			{
+				pSplitter = pCandidate;
+				nPane = n;
+				return TRUE;
+			}
+		}
+	}
+
+	return FALSE;
+}
+
+BOOL CToDoCtrlLayout::GetTasksRect(CRect& r, const CWnd* pRelativeTo) const
+{
+	CSimpleSplitter* pSplitter = NULL;
+	int nPane = -1;
+
+	if (!FindTasksSplitter(pSplitter, nPane))
+		return FALSE;
+
+	pSplitter->GetPaneRect(nPane, r, pRelativeTo);
+	return TRUE;
+}
+
+BOOL CToDoCtrlLayout::GetAttributesRect(CRect& r, const CWnd* pRelativeTo) const
+{
+	CSimpleSplitter* pSplitter = NULL;
+	int nPane = -1;
+
+	if (!FindAttributesSplitter(pSplitter, nPane))
+		return FALSE;
+
+	pSplitter->GetPaneRect(nPane, r, pRelativeTo);
+	return TRUE;
+}
+
+void CToDoCtrlLayout::EnforceAttributesSize()
+{
+	if (!m_bAttributesFixed || (m_nAttributesFixedSize <= 0))
+		return;
+
+	CSimpleSplitter* pSplitter = NULL;
+	int nPane = -1;
+
+	if (!FindAttributesSplitter(pSplitter, nPane))
+		return;
+
+	int nPanes = pSplitter->GetPaneCount();
+
+	if (nPanes < 2)
+		return;
+
+	CRect rClient;
+	pSplitter->GetClientRect(rClient);
+
+	BOOL bHorz = pSplitter->IsHorz();
+	int nTotal = (bHorz ? rClient.Width() : rClient.Height());
+
+	if (nTotal <= 0)
+		return;
+
+	int nTarget = min(m_nAttributesFixedSize, (nTotal - (30 * (nPanes - 1))));
+	nTarget = max(nTarget, 30);
+
+	CArray<int, int&> aSizes;
+
+	for (int nPaneSize = 0; nPaneSize < nPanes; nPaneSize++)
+	{
+		CRect rPane;
+		pSplitter->GetPaneRect(nPaneSize, rPane);
+
+		int nSize = (bHorz ? rPane.Width() : rPane.Height());
+		aSizes.Add(nSize);
+	}
+
+	if (aSizes[nPane] == nTarget)
+		return;
+
+	aSizes[nPane] = nTarget;
+	pSplitter->SetRelativePaneSizes(aSizes, TRUE);
 }
 
 BOOL CToDoCtrlLayout::ResizeIfRoot(CSimpleSplitter& splitter, const CRect& rect) const
@@ -241,11 +411,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .----..----------.      .----..----------.
 								// | C  || T        |      | A  || T        |
 								// |    ||          |      |    ||          |
-								// ·----·|          |  OR  ·----·|          |
+								// ï¿½----ï¿½|          |  OR  ï¿½----ï¿½|          |
 								// .----.|          |      .----.|          |
 								// | A  ||          |      | C  ||          |
 								// |    ||          |      |    ||          |
-								// ·----··----------·      ·----··----------·
+								// ï¿½----ï¿½ï¿½----------ï¿½      ï¿½----ï¿½ï¿½----------ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -275,7 +445,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// |    ||    ||    |
 								// |    ||    ||    |
 								// |    ||    ||    |
-								// ·----··----··----·
+								// ï¿½----ï¿½ï¿½----ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 
 								m_splitterHorz.SetPaneCount(3);
@@ -294,7 +464,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// |    ||    ||    |
 								// |    ||    ||    |
 								// |    ||    ||    |
-								// ·----··----··----·
+								// ï¿½----ï¿½ï¿½----ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 
 								m_splitterHorz.SetPaneCount(3);
@@ -309,11 +479,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .----..---------.
 								// | C  || T       |
 								// |    ||         |
-								// |    |·---------·
+								// |    |ï¿½---------ï¿½
 								// |    |.---------.
 								// |    || A       |
 								// |    ||         |
-								// ·----··---------·
+								// ï¿½----ï¿½ï¿½---------ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -343,7 +513,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// |    ||    ||    |
 								// |    ||    ||    |
 								// |    ||    ||    |
-								// ·----··----··----·
+								// ï¿½----ï¿½ï¿½----ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 
 								m_splitterHorz.SetPaneCount(3);
@@ -359,11 +529,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .----------..----.      .----------..----.
 								// | T        || C  |      | T        || A  |
 								// |          ||    |      |          ||    |
-								// |          |·----·  OR  |          |·----·
+								// |          |ï¿½----ï¿½  OR  |          |ï¿½----ï¿½
 								// |          |.----.      |          |.----.
 								// |          || A  |      |          || C  |
 								// |          ||    |      |          ||    |
-								// ·----------··----·      ·----------··----·
+								// ï¿½----------ï¿½ï¿½----ï¿½      ï¿½----------ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -393,7 +563,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// |    ||    ||    |
 								// |    ||    ||    |
 								// |    ||    ||    |
-								// ·----··----··----·
+								// ï¿½----ï¿½ï¿½----ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 
 								m_splitterHorz.SetPaneCount(3);
@@ -408,11 +578,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .---------..----.
 								// | T       || C  |
 								// |         ||    |
-								// ·---------·|    |
+								// ï¿½---------ï¿½|    |
 								// .---------.|    |
 								// | A       ||    |
 								// |         ||    |
-								// ·---------··----·
+								// ï¿½---------ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -438,11 +608,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .----..---------.
 								// | A  || T       |
 								// |    ||         |
-								// |    |·---------·
+								// |    |ï¿½---------ï¿½
 								// |    |.---------.
 								// |    || C       |
 								// |    ||         |
-								// ·----··---------·
+								// ï¿½----ï¿½ï¿½---------ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -461,11 +631,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .---------..----.
 								// | T       || A  |
 								// |         ||    |
-								// ·---------·|    |
+								// ï¿½---------ï¿½|    |
 								// .---------.|    |
 								// | C       ||    |
 								// |         ||    |
-								// ·---------··----·
+								// ï¿½---------ï¿½ï¿½----ï¿½
 								m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 								m_splitterVert.Create(SSP_VERT, &m_splitterHorz, IDC_VERTSPLITTER);
 
@@ -484,11 +654,11 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								// .-------------.      .-------------.
 								// |      T      |      |      T      |
 								// |             |      |             |
-								// ·-------------·  OR  ·-------------·
+								// ï¿½-------------ï¿½  OR  ï¿½-------------ï¿½
 								// .-----. .-----.      .-----. .-----.
 								// |  C  | |  A  |      |  A  | |  C  |
 								// |     | |     |      |     | |     |
-								// ·-----· ·-----·      ·-----· ·-----·
+								// ï¿½-----ï¿½ ï¿½-----ï¿½      ï¿½-----ï¿½ ï¿½-----ï¿½
 								if (m_bAllowStacking)
 								{
 
@@ -516,13 +686,13 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 								{
 									// .-------------.
 									// |      T      |
-									// ·-------------·
+									// ï¿½-------------ï¿½
 									// .-------------.
 									// |      A      |
-									// ·-------------·
+									// ï¿½-------------ï¿½
 									// .-------------.
 									// |      C      |
-									// ·-------------·
+									// ï¿½-------------ï¿½
 									m_splitterVert.Create(SSP_VERT, m_pParent, IDC_VERTSPLITTER);
 
 									m_splitterVert.SetPaneCount(3);
@@ -559,7 +729,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 						// |    ||    |
 						// |    ||    |
 						// |    ||    |
-						// ·----··----·
+						// ï¿½----ï¿½ï¿½----ï¿½
 						m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 						m_splitterHorz.SetPaneCount(2);
 						m_splitterHorz.SetPane(0, m_pComments); // Tasks
@@ -576,7 +746,7 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 						// |    ||    |
 						// |    ||    |
 						// |    ||    |
-						// ·----··----·
+						// ï¿½----ï¿½ï¿½----ï¿½
 						m_splitterHorz.Create(SSP_HORZ, m_pParent, IDC_HORZSPLITTER);
 						m_splitterHorz.SetPaneCount(2);
 						m_splitterHorz.SetPane(0, NULL); // Tasks
@@ -588,10 +758,10 @@ void CToDoCtrlLayout::RebuildLayout(BOOL bRecalcLayout)
 					{
 						// .-------------.
 						// |      T      |
-						// ·-------------·
+						// ï¿½-------------ï¿½
 						// .-------------.
 						// |      C      |
-						// ·-------------·
+						// ï¿½-------------ï¿½
 						m_splitterVert.Create(SSP_VERT, m_pParent, IDC_VERTSPLITTER);
 						m_splitterVert.SetPaneCount(2);
 						m_splitterVert.SetPane(0, NULL); // Tasks
@@ -744,3 +914,4 @@ void CToDoCtrlLayout::SetDefaultPaneSizes(CSimpleSplitter& splitter)
 
 	splitter.SetRelativePaneSizes(aSizes);
 }
+

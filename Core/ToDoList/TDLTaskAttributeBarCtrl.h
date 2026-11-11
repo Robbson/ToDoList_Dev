@@ -106,6 +106,9 @@ public:
 	COLORREF GetColor() const;
 	BOOL GetRecurrence(TDCRECURRENCE& tr) const;
 
+	int GetRequiredHeight(int cx) const;
+	int GetRequiredWidth(int cy) const;
+
 	// ITDCAttributeEditor
 	void SetDefaultAutoListData(const TDCAUTOLISTDATA& tldDefault) override;
 	void SetAutoListData(TDC_ATTRIBUTE nAttribID, const TDCAUTOLISTDATA& tld) override;
@@ -188,6 +191,7 @@ protected:
 
 	BOOL m_bRefreshing;
 	COLORREF m_crBack;
+	CBrush m_brBack;
 
 	CString m_sAllocBy, m_sStatus, m_sExternalID, m_sVersion;
 	int m_nPriority, m_nRisk, m_nPercentDone;
@@ -228,6 +232,7 @@ protected:
 	void SetCtrlDate(CDateTimeCtrl& ctrl, const COleDateTime& date);
 	void EnableTimeCtrl(CTimeComboBox& ctrl, const COleDateTime& date);
 	static TDC_ATTRIBUTE GetAttributeID(UINT nCtrlID);
+	CDateTimeCtrlEx* GetDateCtrl(UINT nCtrlID);
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -237,6 +242,7 @@ protected:
 
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
+	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 	afx_msg LRESULT OnColourChanged(WPARAM wParam, LPARAM lParam);
 	DECLARE_MESSAGE_MAP()
 };
@@ -244,4 +250,5 @@ protected:
 /////////////////////////////////////////////////////////////////////////////
 
 #endif // AFX_TDLTASKATTRIBUTEBARCTRL_H__9A6B5E51_4A2D_4E7E_9F3B_5C2D8A1B7C10__INCLUDED_
+
 

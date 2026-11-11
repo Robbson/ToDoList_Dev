@@ -2,7 +2,7 @@
 //  CSimpleSplitter
 //
 //  Splitter window with CWnd-derived panes
-//  (C) Robert A. T. Káldy <kaldy@matfyz.cz>
+//  (C) Robert A. T. Kï¿½ldy <kaldy@matfyz.cz>
 //  last updated on 24.3.2004
 //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -52,6 +52,11 @@ public:
 	void SetRelativePaneSizes(const CArray<int, int&>& aSizes, BOOL bRecalcLayout = TRUE);
 	void SetRelativePaneSizes(const int sizes[], BOOL bRecalcLayout = TRUE);
 	void SetBarColor(COLORREF crBar);
+	void SetBarBackgroundColor(COLORREF crBack);
+	void SetBarVisible(int nBar, BOOL bVisible = TRUE);
+	BOOL IsBarVisible(int nBar) const;
+	void SetResizable(BOOL bResizable) { m_bResizable = bResizable; }
+	BOOL IsResizable() const { return m_bResizable; }
 
 	void ClearPanes();
 	void RecalcLayout();
@@ -64,6 +69,7 @@ protected:
 	void ResizePaneWindow(int nPane);
 	void ResizePaneWindows();
 	int HitTestBar(CPoint ptClient) const;
+	int GetBarThickness(int nBar) const;
 
 	//{{AFX_MSG(CSimpleSplitter)
 	afx_msg void OnPaint();
@@ -85,6 +91,9 @@ protected:
 	SS_ORIENTATION m_nOrientation;
 	int m_nTrackIndex, m_nTracker, m_nTrackerMouseOffset;
 	COLORREF m_crBar;
+	COLORREF m_crBarBack;
+	BOOL m_bResizable;
+	CArray<BOOL, BOOL&> m_aBarVisible;
 	
 	CArray<CWnd*, CWnd*&> m_aPanes;
 	CArray<int, int&> m_aPaneSizes, m_aOrgPaneSizes;
@@ -92,3 +101,5 @@ protected:
 
 
 #endif
+
+

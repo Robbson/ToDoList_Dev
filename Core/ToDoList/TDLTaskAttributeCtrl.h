@@ -104,6 +104,8 @@ public:
 
 	COLORREF GetColor() const;
 	BOOL GetRecurrence(TDCRECURRENCE& tr) const;
+	int GetRequiredHeight(int cx) const;
+	int GetRequiredWidth(int cy) const;
 
 	BOOL GetCustomAttributeData(const CString& sAttribID, TDCCADATA& data, BOOL bFormatted = FALSE) const;
 	int GetCustomAttributeAutoListData(const CString& sAttribID, CStringArray& aItems) const;

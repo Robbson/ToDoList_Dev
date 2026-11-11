@@ -2,7 +2,7 @@
 //  CSimpleSplitter
 //
 //  Splitter window with CWnd-derived panes
-//  (C) Robert A. T. Káldy <kaldy@matfyz.cz>
+//  (C) Robert A. T. Kï¿½ldy <kaldy@matfyz.cz>
 //  last updated on 24.3.2004
 
 #include "stdafx.h"
@@ -29,7 +29,9 @@ CSimpleSplitter::CSimpleSplitter(int nNumPanes, SS_ORIENTATION nOrientation, int
 	m_nTrackIndex(0),
 	m_nTracker(0),
 	m_nTrackerMouseOffset(0),
-	m_crBar(::GetSysColor(COLOR_BTNFACE))
+	m_crBar(::GetSysColor(COLOR_BTNFACE)),
+	m_crBarBack(CLR_NONE),
+	m_bResizable(TRUE)
 {
 	ASSERT(nNumPanes >= 0);
 	ASSERT(nOrientation == SSP_HORZ || nOrientation == SSP_VERT);
@@ -66,6 +68,11 @@ void CSimpleSplitter::InitialisePanes(int nNumPanes)
 		m_aPanes.SetSize(nNumPanes);
 		m_aPaneSizes.SetSize(nNumPanes);
 		m_aOrgPaneSizes.SetSize(nNumPanes + 1);
+
+		m_aBarVisible.SetSize(max(0, nNumPanes - 1));
+
+		for (int nBar = 0; nBar < m_aBarVisible.GetSize(); nBar++)
+			m_aBarVisible[nBar] = TRUE;
 
 		int total = 0;
 		for (int i = 0; i < nNumPanes - 1; i++)			// default, set equal size to all panes
@@ -146,6 +153,7 @@ void CSimpleSplitter::ClearPanes()
 	m_aPanes.RemoveAll();
 	m_aPaneSizes.RemoveAll();
 	m_aOrgPaneSizes.RemoveAll();
+	m_aBarVisible.RemoveAll();
 }
 
 void CSimpleSplitter::SetPane(int nIndex, CWnd* pPaneWnd)
@@ -239,12 +247,12 @@ void CSimpleSplitter::GetPaneRect(int nIndex, CRect& rPane, const CWnd* pWndRela
 	if (IsHorz())
 	{
 		rPane.left = m_aOrgPaneSizes[nIndex];
-		rPane.right = m_aOrgPaneSizes[nIndex + 1] - m_nBarThickness;
+		rPane.right = m_aOrgPaneSizes[nIndex + 1] - GetBarThickness(nIndex);
 	}
 	else
 	{
 		rPane.top = m_aOrgPaneSizes[nIndex];
-		rPane.bottom = m_aOrgPaneSizes[nIndex + 1] - m_nBarThickness;
+		rPane.bottom = m_aOrgPaneSizes[nIndex + 1] - GetBarThickness(nIndex);
 	}
 
 	if (pWndRelativeTo)
@@ -262,12 +270,23 @@ void CSimpleSplitter::GetBarRect(int nIndex, CRect& rBar, const CWnd* pWndRelati
 	if (IsHorz())
 	{
 		rBar.left = rBar.right;
-		rBar.right += m_nBarThickness;
+		rBar.right += GetBarThickness(nIndex);
 	}
 	else
 	{
 		rBar.top = rBar.bottom;
-		rBar.bottom += m_nBarThickness;
+		rBar.bottom += GetBarThickness(nIndex);
+	}
+}
+
+void CSimpleSplitter::SetBarBackgroundColor(COLORREF crBack)
+{
+	if (crBack != m_crBarBack)
+	{
+		m_crBarBack = crBack;
+
+		if (GetSafeHwnd())
+			Invalidate();
 	}
 }
 
@@ -284,6 +303,33 @@ void CSimpleSplitter::SetBarColor(COLORREF crBar)
 		if (GetSafeHwnd())
 			Invalidate();
 	}
+}
+
+int CSimpleSplitter::GetBarThickness(int /*nBar*/) const
+{
+	return m_nBarThickness;
+}
+
+void CSimpleSplitter::SetBarVisible(int nBar, BOOL bVisible)
+{
+	if ((nBar < 0) || (nBar >= m_aBarVisible.GetSize()))
+		return;
+
+	if (m_aBarVisible[nBar] != bVisible)
+	{
+		m_aBarVisible[nBar] = bVisible;
+
+		if (GetSafeHwnd())
+			RecalcLayout();
+	}
+}
+
+BOOL CSimpleSplitter::IsBarVisible(int nBar) const
+{
+	if ((nBar < 0) || (nBar >= m_aBarVisible.GetSize()))
+		return FALSE;
+
+	return m_aBarVisible[nBar];
 }
 
 // CSimpleSplitter protected
@@ -303,7 +349,14 @@ void CSimpleSplitter::RecalcLayout()
 	if (!size_sum)
 		return;
 
-	size_sum -= (m_aPanes.GetSize() - 1) * m_nBarThickness;
+	int nTotalBarThickness = 0;
+
+	for (i = 0; i < m_aPanes.GetSize() - 1; i++)
+	{
+		int nThickness = GetBarThickness(i);
+		nTotalBarThickness += nThickness;
+		size_sum -= nThickness;
+	}
 
 	// adjust sizes on the beginning
 	// and while we have grow-ed something	
@@ -367,9 +420,9 @@ void CSimpleSplitter::RecalcLayout()
 	m_aOrgPaneSizes[0] = 0;									
 
 	for (i = 0; i < m_aPanes.GetSize() - 1; i++)
-		m_aOrgPaneSizes[i + 1] = m_aOrgPaneSizes[i] + MulDivRound(m_aPaneSizes[i], size_sum, FULL_SIZE) + m_nBarThickness;
+		m_aOrgPaneSizes[i + 1] = m_aOrgPaneSizes[i] + MulDivRound(m_aPaneSizes[i], size_sum, FULL_SIZE) + GetBarThickness(i);
 
-	m_aOrgPaneSizes[m_aPanes.GetSize()] = size_sum + m_nBarThickness * m_aPanes.GetSize();
+	m_aOrgPaneSizes[m_aPanes.GetSize()] = size_sum + nTotalBarThickness + m_nBarThickness;
 
 	ResizePaneWindows();
 }
@@ -429,6 +482,13 @@ void CSimpleSplitter::OnPaint()
 			CRect rBar;
 			GetBarRect(i, rBar);
 
+			if (!IsBarVisible(i))
+			{
+				COLORREF crBack = ((m_crBarBack == CLR_NONE) ? ::GetSysColor(COLOR_BTNFACE) : m_crBarBack);
+				dc.FillSolidRect(rBar, crBack);
+				continue;
+			}
+
 			if (GetParent()->SendMessage(WM_SS_DRAWSPLITBAR, (WPARAM)dc.GetSafeHdc(), (LPARAM)(LPRECT)rBar) == 0)
 			{
 				dc.FillSolidRect(rBar, m_crBar);
@@ -450,10 +510,16 @@ void CSimpleSplitter::OnSize(UINT nType, int cx, int cy)
 
 int CSimpleSplitter::HitTestBar(CPoint ptClient) const
 {
+	if (!m_bResizable)
+		return -1;
+
 	if (GetPaneCount())
 	{
 		for (int i = 0; i < m_aPanes.GetSize() - 1; i++)
 		{
+			if (!IsBarVisible(i))
+				continue;
+
 			CRect rBar;
 			GetBarRect(i, rBar);
 
@@ -520,7 +586,8 @@ void CSimpleSplitter::OnMouseMove(UINT nFlags, CPoint point)
 	
 	GetClientRect(rClient);
 	size_sum = IsHorz() ? rClient.Width() : rClient.Height();
-	size_sum -= (m_aPanes.GetSize() - 1) * m_nBarThickness;
+	for (int i = 0; i < m_aPanes.GetSize() - 1; i++)
+		size_sum -= GetBarThickness(i);
 	
 	m_aOrgPaneSizes[m_nTrackIndex] = m_nTracker;
 	m_aPaneSizes[m_nTrackIndex - 1] = MulDivRound(m_aOrgPaneSizes[m_nTrackIndex] - m_aOrgPaneSizes[m_nTrackIndex - 1] - m_nBarThickness, FULL_SIZE, size_sum);
@@ -547,4 +614,11 @@ void CSimpleSplitter::OnWindowPosChanging(WINDOWPOS FAR* lpwndpos)
 	lpwndpos->flags |= SWP_NOCOPYBITS;
 	CWnd::OnWindowPosChanging(lpwndpos);
 }
+
+
+
+
+
+
+
 

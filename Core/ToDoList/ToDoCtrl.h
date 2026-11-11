@@ -429,6 +429,7 @@ public:
 	void RefreshReminders();
 	void SetLayoutPositions(TDC_UILOCATION nControlsPos, TDC_UILOCATION nCommentsPos);
 	void SetAttributeEditorMode(TDC_ATTRIBUTEEDITORMODE nMode);
+	void UpdateAttributesPaneSize();
 	void SetCompletionStatus(const CString& sStatus);
 	COleDateTime GetEarliestDueDate() const { return m_calculator.GetEarliestDueDate(); } // entire tasklist
 
@@ -546,6 +547,7 @@ protected:
 	BOOL m_bDelayLoaded;
 	BOOL m_bDeletingTasks;
 	BOOL m_bInSelectedTaskEdit;
+	BOOL m_bUpdatingAttribsSize;
 	BOOL m_bPendingUpdateControls;
 
 private:
@@ -856,3 +858,4 @@ protected:
 };
 
 #endif // !defined(AFX_TODOCTRL_H__5951FDE6_508A_4A9D_A55D_D16EB026AEF7__INCLUDED_)
+

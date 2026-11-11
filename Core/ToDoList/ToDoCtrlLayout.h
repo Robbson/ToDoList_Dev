@@ -39,7 +39,13 @@ public:
 	void Resize(int cx, int cy);
 	void RecalcLayout();
 	void SetSplitBarColor(COLORREF color);
+	void SetSplitBarBackgroundColor(COLORREF color);
 	void ExcludeSplitBars(CDC* pDC) const;
+
+	void SetAttributesFixedSize(BOOL bFixed, int nSize);
+	void EnforceAttributesSize();
+	BOOL GetAttributesRect(CRect& r, const CWnd* pRelativeTo = NULL) const;
+	BOOL GetTasksRect(CRect& r, const CWnd* pRelativeTo = NULL) const;
 
 	TDC_MAXSTATE GetMaximiseState() const { return m_nMaxState; }
 	TDC_UILOCATION GetAttributesPosition() const { return m_nAttribsPos; }
@@ -72,10 +78,14 @@ protected:
 	BOOL m_bShowCommentsAlways;
 	BOOL m_bRebuildingLayout;
 	BOOL m_bFirstLayout;
+	BOOL m_bAttributesFixed;
+	int m_nAttributesFixedSize;
 
 protected:
 	void RebuildLayout(BOOL bRecalcLayout);
 	BOOL ResizeIfRoot(CSimpleSplitter& splitter, const CRect& rect) const;
+	BOOL FindAttributesSplitter(CSimpleSplitter*& pSplitter, int& nPane) const;
+	BOOL FindTasksSplitter(CSimpleSplitter*& pSplitter, int& nPane) const;
 	void ExcludeSplitBar(const CSimpleSplitter& splitter, CDC* pDC) const;
 	void SetDefaultPaneSizes();
 
@@ -86,3 +96,5 @@ protected:
 };
 
 #endif // !defined(AFX_TODOCTRLSPLITTING_H__806C32DA_659C_4BF3_9C59_C0114FD43C37__INCLUDED_)
+
+

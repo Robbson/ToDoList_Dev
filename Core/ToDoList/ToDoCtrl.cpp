@@ -215,6 +215,7 @@ CToDoCtrl::CToDoCtrl(const CTDCContentMgr& mgrContent,
 	m_bDeletingTasks(FALSE),
 	m_bDragDropSubtasksAtTop(TRUE),
 	m_bInSelectedTaskEdit(FALSE),
+	m_bUpdatingAttribsSize(FALSE),
 	m_bModified(FALSE), 
 	m_calculator(m_data),
 	m_cfDefault(cfDefault),
@@ -743,7 +744,45 @@ void CToDoCtrl::SetAttributeEditorMode(TDC_ATTRIBUTEEDITORMODE nMode)
 	m_ctrlAttributes.SetCompletionStatus(m_sCompletionStatus);
 
 	if (m_taskTree.GetSafeHwnd())
+	{
 		UpdateControls(TRUE);
+		Resize();
+	}
+}
+
+void CToDoCtrl::UpdateAttributesPaneSize()
+{
+	if (m_bUpdatingAttribsSize)
+		return;
+
+	CAutoFlag af(m_bUpdatingAttribsSize, TRUE);
+
+	if (!m_ctrlAttributes.IsLegacyEditor() || (m_layout.GetMaximiseState() != TDCMS_NORMAL))
+	{
+		m_layout.SetAttributesFixedSize(FALSE, 0);
+		return;
+	}
+
+	CRect rAttribs;
+
+	if (!m_layout.GetAttributesRect(rAttribs, this))
+		return;
+
+	int nSize = 0;
+
+	switch (m_layout.GetAttributesPosition())
+	{
+	case TDCUIL_BOTTOM:
+		nSize = m_ctrlAttributes.GetRequiredHeight(rAttribs.Width());
+		break;
+
+	case TDCUIL_LEFT:
+	case TDCUIL_RIGHT:
+		nSize = m_ctrlAttributes.GetRequiredWidth(rAttribs.Height());
+		break;
+	}
+
+	m_layout.SetAttributesFixedSize(TRUE, nSize);
 }
 
 BOOL CToDoCtrl::OnEraseBkgnd(CDC* pDC)
@@ -798,6 +837,15 @@ LRESULT CToDoCtrl::OnSplitChange(WPARAM wp, LPARAM lp)
 	{
 		CRect rPane = (LPCRECT)lp;
 
+		if (m_ctrlAttributes.IsLegacyEditor())
+		{
+			UpdateAttributesPaneSize();
+
+			CRect rTasks;
+			if (m_layout.GetTasksRect(rTasks, this))
+				rPane = rTasks;
+		}
+
 		if (!rPane.IsRectEmpty())
 		{
 			ReposProjectName(rPane);
@@ -830,6 +878,7 @@ void CToDoCtrl::Resize(int cx, int cy)
 		}
 
 		m_layout.Resize(cx, cy);
+		UpdateAttributesPaneSize();
 		ShowHideControls();
 
 		UpdateSelectedTaskPath();
@@ -4124,6 +4173,9 @@ void CToDoCtrl::SetColumnFieldVisibility(const TDCCOLEDITVISIBILITY& vis)
 
  		if (bEditChange || (bColumnChange && (vis.GetShowFields() == TDLSA_ASCOLUMN)))
 			m_ctrlAttributes.OnAttributeVisibilityChange();
+
+		if (m_ctrlAttributes.IsLegacyEditor() && (bEditChange || bColumnChange))
+			Resize();
 
 		if (bChange && HasStyle(TDCS_SAVEUIVISINTASKLIST))
 			m_bModified = TRUE;
@@ -10076,6 +10128,7 @@ void CToDoCtrl::SetUITheme(const CUIThemeFile& theme)
 
 	m_taskTree.SetSplitBarColor(m_theme.crAppBackDark);
 	m_layout.SetSplitBarColor(m_theme.crAppBackDark);
+	m_layout.SetSplitBarBackgroundColor(m_theme.crAppBackLight);
 
 	Invalidate();
 }
@@ -10458,4 +10511,7 @@ BOOL CToDoCtrl::SaveTaskViewToImage(const CString& sFilePath)
 	// else
 	return FALSE;
 }
+
+
+
 

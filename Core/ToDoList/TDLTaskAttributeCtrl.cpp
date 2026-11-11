@@ -243,6 +243,16 @@ BOOL CTDLTaskAttributeCtrl::GetRecurrence(TDCRECURRENCE& tr) const
 	return m_pLegacyBar ? m_pLegacyBar->GetRecurrence(tr) : FALSE;
 }
 
+int CTDLTaskAttributeCtrl::GetRequiredHeight(int cx) const
+{
+	return (IsLegacyEditor() && m_pLegacyBar) ? m_pLegacyBar->GetRequiredHeight(cx) : 0;
+}
+
+int CTDLTaskAttributeCtrl::GetRequiredWidth(int cy) const
+{
+	return (IsLegacyEditor() && m_pLegacyBar) ? m_pLegacyBar->GetRequiredWidth(cy) : 0;
+}
+
 void CTDLTaskAttributeCtrl::ShowActiveEditor()
 {
 	if (!GetSafeHwnd())

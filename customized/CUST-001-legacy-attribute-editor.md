@@ -361,6 +361,46 @@ Assertion fixes found during runtime testing:
 - Added debug-only assertion logging (`TDL_ASSERT_LOG`) with stack traces; see
   `AGENTS.md` for usage.
 
+Layout and appearance fixes:
+
+- The attributes pane is now sized to the controls rather than a user-draggable split.
+  - `CTDLTaskAttributeBarCtrl::GetRequiredHeight/Width()` calculate the space needed for
+    the visible fields.
+  - `CToDoCtrl::UpdateAttributesPaneSize()` applies that size to `CToDoCtrlLayout`.
+  - `CSimpleSplitter::SetResizable(FALSE)` disables dragging for the splitter that owns
+    the attributes pane in legacy mode; it is restored in grid mode.
+  - Visibility changes and tasklist resizes re-apply the required size.
+- Static labels are transparent/themed via `WM_CTLCOLORSTATIC` and a background brush.
+- The percent spin control is shown/hidden and enabled with the percent field.
+- The colour picker shows `IDS_COLOR_SAMPLETEXT` with automatic/more-colour text.
+- The file-link field expands to the remaining horizontal space on its row.
+- Date controls are invalidated after `SetTime`/`GDT_NONE` to reduce checkbox painting
+  artifacts. Further investigation is still needed for calendar-visible cases.
+
+Interaction fixes:
+
+- The attributes pane reflows when a parent splitter changes its width:
+  `CToDoCtrl::OnSplitChange()` recomputes the required size and uses the current task
+  pane rect (`CToDoCtrlLayout::GetTasksRect()`) for repositioning.
+- Percent-complete edits now read the edit control text directly. Spin-button changes
+  post `TDCA_PERCENT` after the spin updates the buddy edit.
+- Auto-complete combo fields (status, alloc-by, version) commit on selection or
+  kill-focus instead of `CBN_EDITCHANGE`, so typing “foo” no longer creates `f`, `o`, `o`
+  auto-list entries.
+- Date pickers are left to `CDateTimeCtrlEx`'s native checkbox/calendar flow. An earlier
+  `DTN_DROPDOWN` auto-check was removed because it interfered with unchecking. Checkbox
+  painting when the calendar is closed remains a known issue.
+- The splitter bars adjacent to the attributes pane are hidden in legacy mode, but their
+  width/height is still reserved. `CSimpleSplitter` gained per-bar visibility
+  (`SetBarVisible`/`IsBarVisible`); hidden bars are not painted or hit-tested, and
+  `CToDoCtrlLayout` applies this to the bars either side of the attributes pane.
+- Hidden-bar areas are filled with the tasklist theme background
+  (`SetBarBackgroundColor`) during painting, preventing stale pixels and resize artifacts
+  where the bar used to be drawn.
+- Percent-complete changes on parent tasks are intentionally ignored because the value is
+  calculated from children. For leaf tasks, the spin control now uses the configured
+  `PercentDoneIncrement` step size.
+
 Known Phase 2 limitations (Phase 3 or later):
 
 - Custom attributes are not yet created in the legacy bar; the property grid remains the

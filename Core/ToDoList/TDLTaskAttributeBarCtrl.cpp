@@ -153,6 +153,7 @@ CTDLTaskAttributeBarCtrl::~CTDLTaskAttributeBarCtrl()
 BEGIN_MESSAGE_MAP(CTDLTaskAttributeBarCtrl, CRuntimeDlg)
 	ON_WM_SIZE()
 	ON_WM_ERASEBKGND()
+	ON_WM_CTLCOLOR()
 	ON_MESSAGE(CPN_SELENDOK, OnColourChanged)
 END_MESSAGE_MAP()
 
@@ -239,11 +240,17 @@ BOOL CTDLTaskAttributeBarCtrl::OnInitDialog()
 	m_ePercentDone.SetMask(_T("0123456789"));
 	m_eCost.SetMask(_T("@-.0123456789"), ME_LOCALIZEDECIMAL);
 	m_cpColour.SetSelectionMode(CP_MODE_TEXT);
+	m_cpColour.SetWindowText(CEnString(IDS_COLOR_SAMPLETEXT));
+	m_cpColour.SetDefaultText(CEnString(IDS_COLOR_AUTOMATIC));
+	m_cpColour.SetCustomText(CEnString(IDS_COLOR_MORECOLORS));
+	m_cpColour.SetBkColour(CLR_DEFAULT);
+	m_cpColour.SetTextColour(CLR_DEFAULT);
 
 	m_spinPercent.SetRange(0, 100);
 	m_spinPercent.SetBuddy(GetDlgItem(IDC_TDLAB_PERCENT));
 
 	SetNumPriorityRiskLevels(m_nNumPriorityRiskLevels);
+	SetPercentDoneIncrement(m_nPercentDoneIncrement);
 	SetPriorityColors(m_aPriorityColors);
 	PopulateAutoLists();
 	ShowHideControls();
@@ -278,8 +285,26 @@ void CTDLTaskAttributeBarCtrl::SetBackgroundColor(COLORREF crBack)
 {
 	m_crBack = crBack;
 
+	m_brBack.DeleteObject();
+
+	if (m_crBack != CLR_NONE)
+		m_brBack.CreateSolidBrush(m_crBack);
+
 	if (GetSafeHwnd())
 		Invalidate();
+}
+
+HBRUSH CTDLTaskAttributeBarCtrl::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+	HBRUSH hbr = CRuntimeDlg::OnCtlColor(pDC, pWnd, nCtlColor);
+
+	if ((nCtlColor == CTLCOLOR_STATIC) && m_brBack.GetSafeHandle())
+	{
+		pDC->SetBkMode(TRANSPARENT);
+		return (HBRUSH)m_brBack.GetSafeHandle();
+	}
+
+	return hbr;
 }
 
 BOOL CTDLTaskAttributeBarCtrl::OnCommand(WPARAM wParam, LPARAM lParam)
@@ -297,7 +322,7 @@ BOOL CTDLTaskAttributeBarCtrl::OnCommand(WPARAM wParam, LPARAM lParam)
 			case EN_CHANGE:
 			case EN_KILLFOCUS:
 			case CBN_SELCHANGE:
-			case CBN_EDITCHANGE:
+			case CBN_KILLFOCUS:
 				NotifyParent(nAttrib);
 				return TRUE;
 			}
@@ -311,14 +336,24 @@ BOOL CTDLTaskAttributeBarCtrl::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* p
 {
 	NMHDR* pNMHDR = (NMHDR*)lParam;
 
-	if (!m_bRefreshing && pNMHDR && (pNMHDR->code == DTN_DATETIMECHANGE))
+	if (!m_bRefreshing && pNMHDR)
 	{
-		TDC_ATTRIBUTE nAttrib = GetAttributeID(pNMHDR->idFrom);
-
-		if (nAttrib != TDCA_NONE)
+		if (pNMHDR->code == DTN_DATETIMECHANGE)
 		{
-			NotifyParent(nAttrib);
-			return TRUE;
+			TDC_ATTRIBUTE nAttrib = GetAttributeID(pNMHDR->idFrom);
+
+			if (nAttrib != TDCA_NONE)
+			{
+				NotifyParent(nAttrib);
+				return TRUE;
+			}
+		}
+		else if ((pNMHDR->code == UDN_DELTAPOS) && (pNMHDR->idFrom == IDC_TDLAB_PERCENTSPIN))
+		{
+			if (GetParent())
+				GetParent()->PostMessage(WM_TDCN_ATTRIBUTEEDITED, TDCA_PERCENT, 0);
+
+			return FALSE;
 		}
 	}
 
@@ -346,6 +381,18 @@ void CTDLTaskAttributeBarCtrl::OnCustomAttributesChange()
 void CTDLTaskAttributeBarCtrl::OnAttributeVisibilityChange()
 {
 	ShowHideControls();
+}
+
+CDateTimeCtrlEx* CTDLTaskAttributeBarCtrl::GetDateCtrl(UINT nCtrlID)
+{
+	switch (nCtrlID)
+	{
+	case IDC_TDLAB_STARTDATE:	return &m_dtcStart;
+	case IDC_TDLAB_DUEDATE:		return &m_dtcDue;
+	case IDC_TDLAB_DONEDATE:		return &m_dtcDone;
+	}
+
+	return NULL;
 }
 
 TDC_ATTRIBUTE CTDLTaskAttributeBarCtrl::GetAttributeID(UINT nCtrlID)
@@ -392,6 +439,9 @@ void CTDLTaskAttributeBarCtrl::ShowHideControls()
 
 		if (GetDlgItem(ctrl.nLabelID))
 			GetDlgItem(ctrl.nLabelID)->ShowWindow(bShow ? SW_SHOW : SW_HIDE);
+
+		if (ctrl.nCtrlID == IDC_TDLAB_PERCENT)
+			m_spinPercent.ShowWindow(bShow ? SW_SHOW : SW_HIDE);
 	}
 
 	ReposControls();
@@ -457,6 +507,10 @@ void CTDLTaskAttributeBarCtrl::ReposControls()
 				if (m_spinPercent.GetSafeHwnd())
 					m_spinPercent.MoveWindow(nX + nCtrlW - nSpinW, nY + nLabelH, nSpinW, nCtrlH);
 			}
+			else if (ctrl.nCtrlID == IDC_TDLAB_FILEPATH)
+			{
+				pCtrl->MoveWindow(nX, nY + nLabelH, (rClient.right - nX), nCtrlH);
+			}
 			else
 			{
 				pCtrl->MoveWindow(nX, nY + nLabelH, nCtrlW, nCtrlH);
@@ -471,6 +525,60 @@ void CTDLTaskAttributeBarCtrl::ReposControls()
 	}
 }
 
+int CTDLTaskAttributeBarCtrl::GetRequiredHeight(int cx) const
+{
+	int nVisible = 0;
+
+	for (int nCtrl = 0; nCtrl < NUM_LEGACYCTRLITEMS; nCtrl++)
+	{
+		if (m_vis.IsEditFieldVisible(LEGACYCTRLITEMS[nCtrl].nAttributeID))
+			nVisible++;
+	}
+
+	if (!nVisible)
+		return 0;
+
+	CDlgUnits dlu(GetSafeHwnd() ? (const CWnd*)this : AfxGetMainWnd());
+	const int nCtrlH = dlu.ToPixelsY(13);
+	const int nLabelH = dlu.ToPixelsY(8);
+	const int nVSpacing = dlu.ToPixelsY(4);
+	const int nCtrlW = dlu.ToPixelsX(80);
+	const int nHSpacing = dlu.ToPixelsX(6);
+	const int nCellH = (nLabelH + nCtrlH + nVSpacing);
+
+	int nCols = max(1, cx / (nCtrlW + nHSpacing));
+	int nRows = ((nVisible + nCols - 1) / nCols);
+
+	return (nRows * nCellH);
+}
+
+int CTDLTaskAttributeBarCtrl::GetRequiredWidth(int cy) const
+{
+	int nVisible = 0;
+
+	for (int nCtrl = 0; nCtrl < NUM_LEGACYCTRLITEMS; nCtrl++)
+	{
+		if (m_vis.IsEditFieldVisible(LEGACYCTRLITEMS[nCtrl].nAttributeID))
+			nVisible++;
+	}
+
+	if (!nVisible)
+		return 0;
+
+	CDlgUnits dlu(GetSafeHwnd() ? (const CWnd*)this : AfxGetMainWnd());
+	const int nCtrlH = dlu.ToPixelsY(13);
+	const int nLabelH = dlu.ToPixelsY(8);
+	const int nVSpacing = dlu.ToPixelsY(4);
+	const int nCtrlW = dlu.ToPixelsX(80);
+	const int nHSpacing = dlu.ToPixelsX(6);
+	const int nCellH = (nLabelH + nCtrlH + nVSpacing);
+
+	int nRows = max(1, cy / nCellH);
+	int nCols = ((nVisible + nRows - 1) / nRows);
+
+	return ((nCols * nCtrlW) + ((nCols - 1) * nHSpacing));
+}
+
 void CTDLTaskAttributeBarCtrl::SetCtrlDate(CDateTimeCtrl& ctrl, const COleDateTime& date)
 {
 	if (CDateHelper::IsDateSet(date))
@@ -482,6 +590,8 @@ void CTDLTaskAttributeBarCtrl::SetCtrlDate(CDateTimeCtrl& ctrl, const COleDateTi
 		ctrl.SetTime(CDateHelper::GetDateOnly(COleDateTime::GetCurrentTime()));
 		ctrl.SendMessage(DTM_SETSYSTEMTIME, GDT_NONE, 0);
 	}
+
+	ctrl.Invalidate(FALSE);
 }
 
 void CTDLTaskAttributeBarCtrl::EnableTimeCtrl(CTimeComboBox& ctrl, const COleDateTime& date)
@@ -588,7 +698,13 @@ void CTDLTaskAttributeBarCtrl::SetPriorityColors(const CDWordArray& aColors)
 
 void CTDLTaskAttributeBarCtrl::SetPercentDoneIncrement(int nAmount)
 {
-	m_nPercentDoneIncrement = max(0, nAmount);
+	m_nPercentDoneIncrement = max(1, nAmount);
+
+	if (m_spinPercent.GetSafeHwnd())
+	{
+		UDACCEL uda = { 0, (UINT)m_nPercentDoneIncrement };
+		m_spinPercent.SetAccel(1, &uda);
+	}
 }
 
 void CTDLTaskAttributeBarCtrl::SetTimeTrackTaskID(DWORD dwTaskID)
@@ -850,6 +966,9 @@ void CTDLTaskAttributeBarCtrl::EnableDisableControls()
 		}
 
 		pCtrl->EnableWindow(bEnableCtrl);
+
+		if (ctrl.nCtrlID == IDC_TDLAB_PERCENT)
+			m_spinPercent.EnableWindow(bEnableCtrl);
 	}
 }
 
@@ -942,8 +1061,10 @@ int CTDLTaskAttributeBarCtrl::GetDependencies(CTDCDependencyArray& aDepends) con
 
 int CTDLTaskAttributeBarCtrl::GetPercentDone() const
 {
-	ReadControlValues();
-	return m_nPercentDone;
+	CString sValue;
+	m_ePercentDone.GetWindowText(sValue);
+
+	return max(0, min(100, _ttoi(sValue)));
 }
 
 int CTDLTaskAttributeBarCtrl::GetPriority() const
@@ -1048,6 +1169,11 @@ int CTDLTaskAttributeBarCtrl::GetCustomAttributeAutoListData(const CString& /*sA
 {
 	return 0;
 }
+
+
+
+
+
 
 
 
