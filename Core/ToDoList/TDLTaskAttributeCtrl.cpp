@@ -38,7 +38,7 @@ CTDLTaskAttributeCtrl::CTDLTaskAttributeCtrl(const CToDoCtrlData& data,
 				   vis, 
 				   rems, 
 				   aCustAttribDefs),
-	m_pLegacyBar(NULL),
+	m_pLegacyBar(new CTDLTaskAttributeBarCtrl(data, mgrContent, vis, aCustAttribDefs)),
 	m_nEditorMode(TDCAEM_GRID),
 	m_crThemeBack(CLR_NONE)
 {
@@ -210,7 +210,7 @@ BOOL CTDLTaskAttributeCtrl::EnsureLegacyBar()
 		return TRUE;
 
 	if (!m_pLegacyBar)
-		m_pLegacyBar = new CTDLTaskAttributeBarCtrl;
+		return FALSE;
 
 	if (!m_pLegacyBar->Create(this,
 							  IDC_TASKATTRIBUTEBAR,
@@ -223,6 +223,24 @@ BOOL CTDLTaskAttributeCtrl::EnsureLegacyBar()
 
 	m_pLegacyBar->SetBackgroundColor(m_crThemeBack);
 	return TRUE;
+}
+
+ITDCAttributeEditor& CTDLTaskAttributeCtrl::GetActiveEditor() const
+{
+	if (IsLegacyEditor() && m_pLegacyBar)
+		return *m_pLegacyBar;
+
+	return const_cast<CTDLTaskAttributeListCtrl&>(m_lcAttributes);
+}
+
+COLORREF CTDLTaskAttributeCtrl::GetColor() const
+{
+	return m_pLegacyBar ? m_pLegacyBar->GetColor() : CLR_NONE;
+}
+
+BOOL CTDLTaskAttributeCtrl::GetRecurrence(TDCRECURRENCE& tr) const
+{
+	return m_pLegacyBar ? m_pLegacyBar->GetRecurrence(tr) : FALSE;
 }
 
 void CTDLTaskAttributeCtrl::ShowActiveEditor()
@@ -279,12 +297,12 @@ void CTDLTaskAttributeCtrl::OnSize(UINT nType, int cx, int cy)
 
 void CTDLTaskAttributeCtrl::OnCustomAttributesChange()
 {
-	m_lcAttributes.OnCustomAttributesChange();
+	GetActiveEditor().OnCustomAttributesChange();
 }
 
 void CTDLTaskAttributeCtrl::OnAttributeVisibilityChange()
 {
-	m_lcAttributes.OnAttributeVisibilityChange();
+	GetActiveEditor().OnAttributeVisibilityChange();
 }
 
 void CTDLTaskAttributeCtrl::OnToggleGrouping()
@@ -507,13 +525,13 @@ void CTDLTaskAttributeCtrl::OnUpdateClearAttributeValue(CCmdUI* pCmdUI)
 // -----------------------------------------------------------------------
 // Pass-through function handlers
 
-#define FWD_FUNC_VOID_0ARG(name) void CTDLTaskAttributeCtrl::name() { m_lcAttributes.name(); }
+#define FWD_FUNC_VOID_0ARG(name) void CTDLTaskAttributeCtrl::name() { GetActiveEditor().name(); }
 
 FWD_FUNC_VOID_0ARG(RefreshDateTimeFormatting)
 
 // -----------------------------------------------------------------------
 
-#define CONST_FWD_FUNC_RET_0ARG(ret, name) ret CTDLTaskAttributeCtrl::name() const { return m_lcAttributes.name(); }
+#define CONST_FWD_FUNC_RET_0ARG(ret, name) ret CTDLTaskAttributeCtrl::name() const { return GetActiveEditor().name(); }
 
 CONST_FWD_FUNC_RET_0ARG(TDC_ATTRIBUTE, GetSelectedAttributeID)
 CONST_FWD_FUNC_RET_0ARG(BOOL, GetFlag)
@@ -536,7 +554,7 @@ CONST_FWD_FUNC_RET_0ARG(COleDateTime, GetDoneTime)
 
 // -----------------------------------------------------------------------
 
-#define FWD_FUNC_VOID_1ARG(name, argType) void CTDLTaskAttributeCtrl::name(argType arg) { m_lcAttributes.name(arg); }
+#define FWD_FUNC_VOID_1ARG(name, argType) void CTDLTaskAttributeCtrl::name(argType arg) { GetActiveEditor().name(arg); }
 
 FWD_FUNC_VOID_1ARG(RedrawValue,	TDC_ATTRIBUTE)
 FWD_FUNC_VOID_1ARG(SelectValue,	TDC_ATTRIBUTE)
@@ -552,7 +570,7 @@ FWD_FUNC_VOID_1ARG(RefreshSelectedTasksValue, TDC_ATTRIBUTE)
 
 // -----------------------------------------------------------------------
 
-#define CONST_FWD_FUNC_RET_1ARG(ret, name, argType) ret CTDLTaskAttributeCtrl::name(argType arg) const { return m_lcAttributes.name(arg); }
+#define CONST_FWD_FUNC_RET_1ARG(ret, name, argType) ret CTDLTaskAttributeCtrl::name(argType arg) const { return GetActiveEditor().name(arg); }
 
 CONST_FWD_FUNC_RET_1ARG(BOOL, GetTimeEstimate, TDCTIMEPERIOD&)
 CONST_FWD_FUNC_RET_1ARG(BOOL, GetTimeSpent, TDCTIMEPERIOD&)
@@ -564,14 +582,14 @@ CONST_FWD_FUNC_RET_1ARG(BOOL, IsAnyTaskSelected, const CDWordArray&)
 
 // -----------------------------------------------------------------------
 
-#define FWD_FUNC_VOID_2ARG(name, arg1Type, arg2Type) void CTDLTaskAttributeCtrl::name(arg1Type arg1, arg2Type arg2) { m_lcAttributes.name(arg1, arg2); }
+#define FWD_FUNC_VOID_2ARG(name, arg1Type, arg2Type) void CTDLTaskAttributeCtrl::name(arg1Type arg1, arg2Type arg2) { GetActiveEditor().name(arg1, arg2); }
 
 FWD_FUNC_VOID_2ARG(SetAutoListData, TDC_ATTRIBUTE, const TDCAUTOLISTDATA&)
 FWD_FUNC_VOID_2ARG(SetAutoListDataReadOnly, TDC_ATTRIBUTE, BOOL)
 
 // -----------------------------------------------------------------------
 
-#define CONST_FWD_FUNC_RET_2ARG(ret, name, arg1Type, arg2Type) ret CTDLTaskAttributeCtrl::name(arg1Type arg1, arg2Type arg2) const { return m_lcAttributes.name(arg1, arg2); }
+#define CONST_FWD_FUNC_RET_2ARG(ret, name, arg1Type, arg2Type) ret CTDLTaskAttributeCtrl::name(arg1Type arg1, arg2Type arg2) const { return GetActiveEditor().name(arg1, arg2); }
 
 CONST_FWD_FUNC_RET_2ARG(int, GetAllocTo, CStringArray&, CStringArray&)
 CONST_FWD_FUNC_RET_2ARG(int, GetCategories, CStringArray&, CStringArray&)
@@ -583,17 +601,17 @@ CONST_FWD_FUNC_RET_2ARG(int, GetCustomAttributeAutoListData, const CString&, CSt
 // Others having unique patterns
 void CTDLTaskAttributeCtrl::GetAutoListData(TDC_ATTRIBUTE nAttribID, TDCAUTOLISTDATA& tld) const
 {
-	m_lcAttributes.GetAutoListData(nAttribID, tld);
+	GetActiveEditor().GetAutoListData(nAttribID, tld);
 }
 
 BOOL CTDLTaskAttributeCtrl::SetSelectedTaskIDs(const CDWordArray& aTaskIDs)
 {
-	return m_lcAttributes.SetSelectedTaskIDs(aTaskIDs);
+	return GetActiveEditor().SetSelectedTaskIDs(aTaskIDs);
 }
 
 BOOL CTDLTaskAttributeCtrl::GetCustomAttributeData(const CString& sAttribID, TDCCADATA& data, BOOL bFormatted) const
 {
-	return m_lcAttributes.GetCustomAttributeData(sAttribID, data, bFormatted);
+	return GetActiveEditor().GetCustomAttributeData(sAttribID, data, bFormatted);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////

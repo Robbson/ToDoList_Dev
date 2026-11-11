@@ -102,6 +102,9 @@ public:
 	COleDateTime GetDueTime() const;
 	COleDateTime GetDoneTime() const;
 
+	COLORREF GetColor() const;
+	BOOL GetRecurrence(TDCRECURRENCE& tr) const;
+
 	BOOL GetCustomAttributeData(const CString& sAttribID, TDCCADATA& data, BOOL bFormatted = FALSE) const;
 	int GetCustomAttributeAutoListData(const CString& sAttribID, CStringArray& aItems) const;
 
@@ -111,7 +114,7 @@ public:
 	void OnCustomAttributesChange();
 	void OnAttributeVisibilityChange();
 
-	void Flush() { m_lcAttributes.EndEdit(); }
+	void Flush() { GetActiveEditor().Flush(); }
 
 protected:
 	CEnToolBar m_toolbar;
@@ -176,6 +179,7 @@ protected:
 	BOOL EnsureLegacyBar();
 	void ShowActiveEditor();
 	void SetBackgroundColor(COLORREF crBack);
+	ITDCAttributeEditor& GetActiveEditor() const;
 };
 
 /////////////////////////////////////////////////////////////////////////////

@@ -308,5 +308,71 @@ Verification:
   `CTDCTaskMatcherTest::IndividualRules` and are unrelated to this change (no matcher
   code was touched); they are likely locale/date-sensitive.
 
-Next: Phase 2 — build the actual legacy attribute controls and value/edit plumbing.
+### Phase 2 (built-in attributes implemented; runtime verification pending)
+
+Implemented a functional legacy bar for all built-in attributes:
+
+- Added `ITDCAttributeEditor` as the common editor contract.
+  - `CTDLTaskAttributeListCtrl` implements it unchanged.
+  - `CTDLTaskAttributeCtrl` now routes all value/selection/auto-list calls through
+    `GetActiveEditor()` instead of hard-coding the property grid.
+- Rebuilt `CTDLTaskAttributeBarCtrl` from the v8.2 control set:
+  - priority, risk, percent, time estimate/spent, start/due/done dates and times,
+  - recurrence, colour, alloc-to, alloc-by, status, category, tags,
+  - external ID, cost, dependency, version, file link.
+- Control creation uses the old runtime-dialog table approach (`TDCCONTROL` +
+  `CRuntimeDlg`), with new IDs (`IDC_TDLAB_*`) to avoid collisions with removed upstream
+  IDs.
+- Values are populated with `CTDCMultiTasker`:
+  - common values are shown,
+  - mixed values clear text/date fields and clear priority/risk/percent,
+  - multi-value fields use `CCheckComboBox` matched/mixed states.
+- Editing uses the existing pipeline:
+  - the bar sends `WM_TDCN_ATTRIBUTEEDITED`,
+  - the facade forwards it to `CToDoCtrl`,
+  - `CToDoCtrl::UpdateTask()` pulls the edited value through the facade and applies it with
+    undo and notifications.
+- Added direct handling in `CToDoCtrl::UpdateTask()` for `TDCA_COLOR` and
+  `TDCA_RECURRENCE`, which the grid normally edits via dialogs.
+- Visibility follows `TDCCOLEDITVISIBILITY`; the bar re-lays out visible fields in a
+  responsive label/control grid.
+- Auto-list data (alloc-to/by, status, category, tags, version) is populated and updated.
+- Theme background, priority colours, completion status, date formatting and current
+  folder are applied.
+
+Verification:
+
+- `ToDoListLib` and `ToDoList.exe` build in `Unicode Debug|Win32`.
+- `TDLTest` builds after the interface change.
+- Debug smoke test succeeded: a second instance started with the sample tasklist and the
+  portable INI setting `AttributeEditorMode=1`, i.e. the legacy bar was created and
+  initialised without crashing. Interactive editing still needs manual verification.
+- Release compile/link succeeded; the project's existing post-build copy step failed with
+  exit code 9009 (environmental `mkdir`/`copy` scripts), unrelated to the C++ changes.
+
+Assertion fixes found during runtime testing:
+
+- Priority/risk “no value” must be `FM_NOPRIORITYORRISK`, not
+  `FM_ANYPRIORITYORRISK`; the edit combos are created without the “Any” entry.
+- `SetPriorityColors(m_aPriorityColors)` was a self-copy of the `CDWordArray`, which
+  tripped MFC's `CArray` assertion. It now skips the copy when source and destination are
+  the same object.
+- `SetSelectedTaskIDs()` now also guards against self-copy.
+- Added debug-only assertion logging (`TDL_ASSERT_LOG`) with stack traces; see
+  `AGENTS.md` for usage.
+
+Known Phase 2 limitations (Phase 3 or later):
+
+- Custom attributes are not yet created in the legacy bar; the property grid remains the
+  only editor for them.
+- The time-spent clock/add-time buttons and the dependency picker/link buttons are not
+  ported yet; fields are directly editable.
+- No per-mode persistence of legacy-bar ordering/state yet.
+- Read-only/auto-list-read-only and locked-task UI states are not visually enforced; the
+  data layer still rejects edits.
+- Layout is a straightforward responsive grid, not a pixel-identical port of the v8.2
+  auto-reposition algorithm.
+
+Next: Phase 3 — custom attributes and the remaining auxiliary buttons.
+
 

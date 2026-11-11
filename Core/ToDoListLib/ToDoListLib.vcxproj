@@ -418,6 +418,7 @@
     <ClInclude Include="..\ToDoList\TDLSimpleTextContentCtrl.h" />
     <ClInclude Include="..\ToDoList\TDLStatusBar.h" />
     <ClInclude Include="..\ToDoList\TDLStylesheetParamConfigDlg.h" />
+    <ClInclude Include="..\ToDoList\ITDCAttributeEditor.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeCtrl.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeBarCtrl.h" />
     <ClInclude Include="..\ToDoList\TDLTaskAttributeListCtrl.h" />

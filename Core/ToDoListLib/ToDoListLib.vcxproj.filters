@@ -952,6 +952,9 @@
     <ClInclude Include="..\ToDoList\TDLShowReminderListCtrl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\ToDoList\ITDCAttributeEditor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\ToDoList\TDLTaskAttributeCtrl.h">
       <Filter>Header Files</Filter>
     </ClInclude>

@@ -43,4 +43,4 @@ customized/
 
 | ID | Title | Status | Document |
 |---|---|---|---|
-| CUST-001 | Legacy (v8.2-style) attribute editor, selectable | In progress (Phase 1 done) | [CUST-001-legacy-attribute-editor.md](CUST-001-legacy-attribute-editor.md) |
+| CUST-001 | Legacy (v8.2-style) attribute editor, selectable | In progress (Phase 2 built-ins done; runtime test pending) | [CUST-001-legacy-attribute-editor.md](CUST-001-legacy-attribute-editor.md) |

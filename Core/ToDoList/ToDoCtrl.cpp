@@ -732,7 +732,18 @@ void CToDoCtrl::SetLayoutPositions(TDC_UILOCATION nAttribsPos, TDC_UILOCATION nC
 
 void CToDoCtrl::SetAttributeEditorMode(TDC_ATTRIBUTEEDITORMODE nMode)
 {
+	if (m_ctrlAttributes.GetEditorMode() == nMode)
+		return;
+
 	m_ctrlAttributes.SetEditorMode(nMode);
+
+	// The newly created editor has missed previous state updates
+	m_ctrlAttributes.SetDefaultAutoListData(m_tldDefault);
+	m_ctrlAttributes.SetAutoListData(TDCA_ALL, m_tldAll);
+	m_ctrlAttributes.SetCompletionStatus(m_sCompletionStatus);
+
+	if (m_taskTree.GetSafeHwnd())
+		UpdateControls(TRUE);
 }
 
 BOOL CToDoCtrl::OnEraseBkgnd(CDC* pDC)
@@ -1191,8 +1202,16 @@ BOOL CToDoCtrl::UpdateTask(TDC_ATTRIBUTE nAttribID, DWORD dwFlags)
 		break;
 		
 	case TDCA_RECURRENCE:
+		{
+			TDCRECURRENCE tr;
+
+			if (m_ctrlAttributes.GetRecurrence(tr))
+				bChange = SetSelectedTaskRecurrence(tr);
+		}
+		break;
+
 	case TDCA_COLOR:
-		ASSERT(0);
+		bChange = SetSelectedTaskColor(m_ctrlAttributes.GetColor());
 		break;
 
 	default:

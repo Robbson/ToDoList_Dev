@@ -8,6 +8,7 @@
 //
 
 #include "ToDoCtrlDataUtils.h"
+#include "ITDCAttributeEditor.h"
 #include "TDLPriorityComboBox.h"
 #include "TDLRiskComboBox.h"
 #include "tdltaskdependencyedit.h"
@@ -32,7 +33,7 @@ class CTDCImageList;
 /////////////////////////////////////////////////////////////////////////////
 // CTDLTaskAttributeListCtrl window
 
-class CTDLTaskAttributeListCtrl : public CInputListCtrl
+class CTDLTaskAttributeListCtrl : public CInputListCtrl, public ITDCAttributeEditor
 {
 // Construction -------------------------------------------------------------
 public:
@@ -132,6 +133,8 @@ public:
 
 	void OnCustomAttributesChange();
 	void OnAttributeVisibilityChange();
+
+	void Flush() { EndEdit(); }
 
 	static BOOL IsCustomTime(TDC_ATTRIBUTE nAttribID);
 

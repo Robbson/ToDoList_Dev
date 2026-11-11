@@ -65,6 +65,23 @@ Notes:
 - Runtime plugins are loaded from the **executable directory only**. Copying a DLL
   elsewhere will not make it load.
 
+## Debug assertions
+
+Debug builds show an MFC assertion dialog by default, which blocks automation. To log
+assertions instead, set the environment variable before launching a Debug build:
+
+```bat
+set TDL_ASSERT_LOG=1
+Core\ToDoList\Unicode_Debug\ToDoList.exe
+```
+
+- `TDL_ASSERT_LOG=1` writes `%TEMP%\ToDoList_asserts.log`.
+- `TDL_ASSERT_LOG=<path>` writes to the given file.
+- The log includes a stack trace resolved with `dbghelp`/PDB when available.
+- The hook suppresses the dialog and continues execution. This is intended for
+  diagnosis, not production.
+- Release builds ignore the variable.
+
 ## Code conventions
 
 - `.editorconfig`: **tabs**, tab width 4, trim trailing whitespace. Match surrounding

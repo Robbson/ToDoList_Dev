@@ -52,12 +52,132 @@
 #include <shlwapi.h>
 #pragma comment(lib, "shlwapi.lib")
 
+#include <crtdbg.h>
+#ifdef _DEBUG
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #undef THIS_FILE
 static char THIS_FILE[] = __FILE__;
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+
+#ifdef _DEBUG
+static CString s_sAssertLogPath;
+
+static void GetAssertLogPath(CString& sPath)
+{
+	TCHAR szEnv[MAX_PATH * 2] = { 0 };
+	DWORD dwLen = ::GetEnvironmentVariable(_T("TDL_ASSERT_LOG"), szEnv, _countof(szEnv));
+
+	if ((dwLen > 0) && (dwLen < _countof(szEnv)) && (lstrcmpi(szEnv, _T("1")) != 0))
+	{
+		sPath = szEnv;
+		return;
+	}
+
+	TCHAR szTemp[MAX_PATH] = { 0 };
+	::GetTempPath(_countof(szTemp), szTemp);
+	sPath.Format(_T("%sToDoList_asserts.log"), szTemp);
+}
+
+static int __cdecl TDLAssertReportHook(int nReportType, char* szMessage, int* pnReturnValue)
+{
+	if ((nReportType != _CRT_ASSERT) && (nReportType != _CRT_ERROR))
+		return FALSE;
+
+	if (s_sAssertLogPath.IsEmpty())
+		GetAssertLogPath(s_sAssertLogPath);
+
+	FILE* pFile = NULL;
+
+	if ((_tfopen_s(&pFile, s_sAssertLogPath, _T("a")) != 0) || !pFile)
+		return FALSE; // fall back to default handling
+
+	SYSTEMTIME st = { 0 };
+	::GetLocalTime(&st);
+
+	fprintf(pFile,
+			"[%04d-%02d-%02d %02d:%02d:%02d] [pid %lu] %s\n",
+			st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+			::GetCurrentProcessId(), (szMessage ? szMessage : "(null)"));
+
+	static BOOL bSymInitialized = FALSE;
+
+	if (!bSymInitialized)
+	{
+		SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+		bSymInitialized = SymInitialize(::GetCurrentProcess(), NULL, TRUE);
+	}
+
+	if (bSymInitialized)
+	{
+		void* frames[32] = { 0 };
+		USHORT nFrames = CaptureStackBackTrace(1, _countof(frames), frames, NULL);
+
+		for (USHORT nFrame = 0; nFrame < nFrames; nFrame++)
+		{
+			char szBuffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME] = { 0 };
+			SYMBOL_INFO* pSym = (SYMBOL_INFO*)szBuffer;
+			pSym->SizeOfStruct = sizeof(SYMBOL_INFO);
+			pSym->MaxNameLen = MAX_SYM_NAME;
+
+			DWORD64 dwDisplacement = 0;
+
+			if (SymFromAddr(::GetCurrentProcess(), (DWORD64)frames[nFrame], &dwDisplacement, pSym))
+			{
+				IMAGEHLP_LINE64 line = { 0 };
+				line.SizeOfStruct = sizeof(line);
+
+				DWORD dwLineDisp = 0;
+
+				if (SymGetLineFromAddr64(::GetCurrentProcess(), (DWORD64)frames[nFrame], &dwLineDisp, &line))
+				{
+					fprintf(pFile, "    %s(%lu): %s + 0x%llx\n",
+							line.FileName, line.LineNumber, pSym->Name,
+							(unsigned long long)dwDisplacement);
+				}
+				else
+				{
+					fprintf(pFile, "    %s + 0x%llx\n", pSym->Name,
+							(unsigned long long)dwDisplacement);
+				}
+			}
+			else
+			{
+				fprintf(pFile, "    0x%p\n", frames[nFrame]);
+			}
+		}
+	}
+
+	fflush(pFile);
+	fclose(pFile);
+
+	if (szMessage)
+		::OutputDebugStringA(szMessage);
+
+	if (pnReturnValue)
+		*pnReturnValue = 0;
+
+	return TRUE; // handled: suppress dialog and debug break
+}
+
+static void InitAssertLogging()
+{
+	TCHAR szEnv[MAX_PATH * 2] = { 0 };
+	DWORD dwLen = ::GetEnvironmentVariable(_T("TDL_ASSERT_LOG"), szEnv, _countof(szEnv));
+
+	if ((dwLen == 0) || (dwLen >= _countof(szEnv)) || (lstrcmp(szEnv, _T("0")) == 0))
+		return;
+
+	_CrtSetReportHook2(_CRT_RPTHOOK_INSTALL, TDLAssertReportHook);
+}
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -180,6 +300,10 @@ BOOL CToDoListApp::HandleSimpleQueries(const CEnCommandLineInfo& cmdInfo)
 
 BOOL CToDoListApp::InitInstance()
 {
+#ifdef _DEBUG
+	InitAssertLogging();
+#endif
+
 	// Set up icons that might be required during startup
 	if (m_iconBrowse.Load(IDI_FILEEDIT_BROWSE, 16, FALSE) && m_iconGo.Load(IDI_FILEEDIT_GO, 16, FALSE))
 		CFileEdit::SetDefaultButtonImages(m_iconBrowse, m_iconGo);
