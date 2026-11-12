@@ -1,207 +1,228 @@
-# CUST-002 — Stale task title in List View while scrolling
+# CUST-002 — Duplicated rows in List View while scrolling
 
 | Field | Value |
 |---|---|
-| Status | Deferred (investigation only; attempted fixes reverted) |
+| Status | Deferred (cause identified; local fixes reverted) |
 | Upstream baseline | ToDoList 9.3.DP7 |
-| Scope | List View title column custom drawing |
+| Scope | Task List View scrolling/repainting; related Task Tree history |
 | Default | No behaviour change; no code retained |
-| Related | [index.md](index.md), [../PERFORMANCE.md](../PERFORMANCE.md) |
+| Related | [index.md](index.md), [../PERFORMANCE.md](../PERFORMANCE.md), [CUST-004](CUST-004-ui-perf-harness.md) |
 
 ## Problem
 
-In "List View" the task title column can show the same title for many consecutive
-rows after scrolling, while the attribute columns (Last Mod., Completed, Status, ...)
-continue to show the correct values. The screenshot `task-list-scrolling-issue.png`
-shows one task titled `Interessantes` repeated down the title column while the
-attribute columns correctly show the following tasks (`Spring MVC`, `Spring Data`,
-`Spring & Angular`, ...).
+While scrolling the Task List View, a row can be copied repeatedly down the
+viewport until the newly exposed rows finish painting. The title column is
+affected most often, but the attribute columns can show the same artefact; it
+depends on which pane is scrolled and repainted last.
 
-List View is not one control. It consists of two list views:
+This is not a task lookup or `lItemlParam` defect. It is the result of how the
+list view is scrolled and painted:
 
-- `m_lcTasks` — the title/client column (`CTDLTaskListCtrl`).
-- `m_lcColumns` — the attribute columns (`CTDLTaskCtrlBase`).
+- Windows scrolls a ListView by copying existing pixels (`ScrollWindowEx`).
+  The band of newly exposed rows is painted afterwards.
+- If painting that band takes long enough, the copied rows are visible at their
+  new positions before the correct rows overwrite them. The user sees duplicates
+  of the row that was at the edge of the old viewport. It is similar to a web
+  page that shows placeholder content while more rows load, except that here the
+  placeholder is a copy of an already painted row.
+- Whether the artefact is noticeable depends on how long the repaint takes and
+  on how much else the machine is doing. A fast machine may repaint before the
+  user notices; a slow repaint makes the duplicate band clearly visible.
+- The List View has always worked this way. The old Task Tree did not: it
+  repainted the visible rows in place, so old rows remained until new rows were
+  drawn over them. There were no copied duplicates during the transition.
 
-They are synchronised by `CTreeListSyncer` using
-`TLSL_RIGHTDATA_IS_LEFTITEM`; the column list stores an index into the title list.
-Both lists have `LVS_EX_DOUBLEBUFFER`, but double buffering is per window, so it
-cannot make the two independently painted surfaces update atomically.
+The Task Tree adopted the List View's scroll-by-copy behaviour when
+`TVS_EX_DOUBLEBUFFER` was added in the 7.0 cycle. That is why 6.9.6's tree
+looked different and why the List View never had the older, gentler behaviour.
 
-## Root cause
+### Version boundary
 
-The title column draws its text in `CDDS_ITEMPOSTPAINT` and takes the task ID from
-`nmcd.lItemlParam` (`CTDLTaskCtrlBase::OnPostPaintTaskTitle`). During
-double-buffered/synchronised scrolling that notification can carry a stale item
-`lParam`, while `nmcd.dwItemSpec` still identifies the item being painted. The
-title therefore resolves to the last task that was drawn successfully.
+| Version | Observed behaviour |
+|---|---|
+| 6.9.6 | Task Tree repaints rows in place; no duplicated rows while scrolling |
+| 7.0.0 | Task Tree behaves like the List View (scroll blit + later repaint) |
+| 7.2.RC9 | List View artefact present |
+| 8.x / 9.x | Same behaviour; no regression introduced by the 2019 title refactor |
 
-The attribute columns do not use `lItemlParam`; they resolve the task from
-`nmcd.dwItemSpec` and the list item-data mapping
-(`CTDLTaskCtrlBase::OnListCustomDraw` -> `GetColumnItemTaskID`), which is why they
-remain correct.
+Consequences for earlier analysis:
 
-Evidence: `biglist.tdl` contains exactly one task titled `Interessantes`
-(ID 372). The screenshot repeats that title while the attribute columns show the
-correct dates for tasks 353, 352, 358, 46, 300, 302, 301 and 341.
+- The artefact is not caused by `OnPostPaintTaskTitle` reading
+  `nmcd.lItemlParam`. Changing the title lookup (the two reverted attempts) did
+  not change it, and 7.2.RC9 already used `GetTaskID(nItem)`.
+- The artefact is not a two-list synchronisation race in the task-ID sense.
+  Both panes can show it independently. `CTreeListSyncer` only decides which
+  pane is scrolled and when the other catches up.
+- 7.3.A1–A8 and 8.0 are the same lineage (7.3.A8 was renamed 8.0.A8 on
+  2020-01-30), so comparing those builds cannot isolate the change.
 
-## Attempted fixes (reverted)
+### Source-level change in the Task Tree
 
-Two local fixes were tried and manually tested:
+The 6.9.6 source confirms the exact change. Both versions set list views up in
+`CTreeListSyncer`, but only the newer version enables a **tree** double buffer:
 
-1. Resolve the title from `nmcd.dwItemSpec`/`GetTaskID()` instead of
-   `nmcd.lItemlParam` in `OnPrePaintTaskTitle`/`OnPostPaintTaskTitle`.
-2. Resolve `LVN_GETDISPINFO` text/image from `item.iItem`/`GetTaskID()` and always
-   derive the title rect with `GetItemRect()` instead of trusting `nmcd.rc`.
+| Source | List views | Tree views |
+|---|---|---|
+| 6.9.6 `Shared/TreeListSyncer.cpp` | `LVS_EX_DOUBLEBUFFER` | no `TVS_EX_DOUBLEBUFFER` |
+| 7.0.998.9 / current `Core/Shared/TreeListSyncer.cpp` | `LVS_EX_DOUBLEBUFFER` | `TVS_EX_DOUBLEBUFFER` |
 
-Neither changed the artefact. The screenshots after the first fix still showed the
-same title repeated, and after the second fix the problem remained. The code was
-therefore reverted to keep the working tree clean. The investigation above remains
-useful, but the actual paint/skip mechanism is not yet proven.
+`TVS_EX_DOUBLEBUFFER` makes the tree scroll by copying its backing bitmap. The
+newly exposed rows are painted later, which produces the same copied-row
+artefact as the List View. Without it, 6.9.6 lets the tree repaint the exposed
+rows in place, so the old rows stay visible until they are overwritten. That is
+the behaviour the user remembers.
 
-## Verification harness (CUST-004)
+The earlier candidate, `618e0bd56` (2016-09-28, "Fix horizontal scroll
+artifacts"), only removed horizontal-scroll workarounds and is not the cause of
+the vertical scroll change.
 
-The [CUST-004 harness](CUST-004-ui-perf-harness.md) has a `UIPerf::ListScrollSync`
-scenario that drives List View with the real wheel and checks the title list and
-column list `LVM_GETTOPINDEX` values against each other. This top-index mismatch is
-the reliable automated signal for this bug: the title column lags behind the
-attribute columns by several rows.
+## Reproducing
+
+The [CUST-004 harness](CUST-004-ui-perf-harness.md) drives the real UI and can
+record the transition at 20 or 60 fps:
 
 ```bat
-:: automated fast-scroll check using the generated tasklist (no -tdl needed)
+:: real sample, 20 fps JPEG recording, cropped to the list windows
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll ^
+  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
+  -size 800x600 -capture task -keys -record -recms 50 -steps 20 -delay 150
+
+:: fast-scroll check using the generated tasklist
 Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -notches 2 -delay 0 -record
 
-:: real sample, 3 Page Downs, 20 fps JPEG recording, cropped to the list windows
+:: drive an older ToDoList build directly
 Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll ^
-  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
-  -size 800x600 -capture task -keys -record -recms 50 -steps 6 -delay 150
-
-:: manual: leave List View open and record while you press Page Up/Down
-Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -record ^
-  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
-  -size 800x600 -capture task -recms 50
-
-:: same, settled pixel check (also catches stale attribute-pane fields)
-Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll ^
-  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
-  -size 1200x1200 -keys -steps 20
-
-:: manual run: opens the tasklist in List View and leaves it open
-Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -tdl ^
-  ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl
+  -tdl ...\Commercial Construction.tdl -size 800x600 -capture task ^
+  -keys -record -recms 50 -steps 20 -delay 150 -exe "C:\path\ToDoList.exe"
 ```
 
-- Fast-scroll pass criterion: `syncErrors=0` and the top index has advanced.
-- 20 fps, 3 Page Downs (`-recms 50 -steps 6 -delay 150`) recorded 12 JPEG frames at
-  745x400. Frame 4 shows the title column stale: `Commercial Construction`,
-  `Three-story Office Building`, ... against IDs 19, 20, 21 and the scrolled
-  attribute columns. Frame 5 shows the titles caught up. This is CUST-002 captured
-  visually; the synchronous top-index query missed it because it ran after the
-  catch-up.
-- `-maximize` is currently not recommended for key scrolling: in the test run the
-  Page Down keys did not scroll after it (`top=0`). `-capture task` already excludes
-  the filter/group-by panels and attribute pane, so maximize is unnecessary.
-- Baseline with `Commercial Construction.tdl` + Page Down:
-  `ListScroll[2]: top1=21 top2=42 MISMATCH`, `syncErrors=1`. The title list lags
-  the attribute columns by a page.
-- Settled Page Down run on the same file: `maxDiff=1,166,022`,
-  `artifactSteps=5/10`. The on-screen frame shows the attribute pane fields blank
-  (`Allocated To`, `Dependency`, `Due Date`, ...) while the forced-repaint frame
-  shows them populated. So the pane next to the tree is affected too, not only the
-  title column.
-- Generated fixture baseline (no `-tdl`): `ListScroll[0]: top1=0 top2=5 MISMATCH`,
-  `syncErrors=1`; the first recorded JPEG shows titles `List task 5...` against IDs `11...`.
-- Settled wheel-only run (`maxDiff≈529`, `artifactSteps=0`) does not reproduce it;
-  use Page Down (`-keys`) and a tall window (`-size`), as above.
-- If `-tdl` is omitted the generated fixture is used. It is cached under
-  `%TEMP%\TDLPerf\Cache\`; add `-regenerate` after changing fixture code. Real
-  samples from the sibling `ToDoList_Test` repository are preferred.
-- Recorded frames are JPEGs `frame_NNNNN_<tick>.jpg` (fast mode) or
-  `scroll_NN_onscreen.bmp`/`_clean.bmp` (settled mode) under
-  `%TEMP%\TDLPerf\ListScroll_<timestamp>\`.
-- To generate a fixture and launch ToDoList yourself, run `-ui -uifix` and use the
-  printed `Manual list:` command line.
+Recorded frames are written to `%TEMP%\TDLPerf\ListScroll_<timestamp>\`.
+At 60 fps the duplicated rows typically persist for one frame (about 16 ms);
+the next frame is correct. On a slower repaint the same copy is visible for
+longer, which is when it becomes noticeable.
 
-## What the screenshots establish
+## Harness findings (2026-11-12)
 
-- The repeated title is always the title of the **first visible row** at the top of
-  the viewport. On page-down it repeats down the entire client area.
-- The attribute columns keep showing the correct per-row values.
-- The affected row range depends on scroll speed/step size, which points to a
-  listview scroll/blit optimisation interacting with custom draw, not to task-ID
-  lookup.
-- The title list is a separate window from the column list, so double buffering
-  cannot make their updates atomic.
+- The repeated row is a **copy of painted pixels**. A temporary magenta marker
+  drawn in `OnPostPaintTaskTitle` appeared on the repeated rows as well. That is
+  consistent with a copied row and does not prove a stale task ID.
+- The same artefact can appear in either pane. Reference frame
+  `ListScroll_20261112_034949/frame_00004_...jpg` showed coherent titles and a
+  repeated ID/value block in the attribute pane; later runs showed the title
+  pane repeating one title.
+- Disabling `LVS_EX_DOUBLEBUFFER` replaced the duplicates with a blank pane
+  during the transition (visible flicker), not with the old in-place overdraw.
+- `WM_SETREDRAW(FALSE)` around the paired scroll plus a parent
+  `RedrawWindow(RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN)` removed the
+  settled `LVM_GETTOPINDEX` mismatch (`syncErrors=0`), but a 20/60 fps recording
+  still caught partial frames.
+- `LockWindowUpdate(parent)` delayed the resync and did not remove the copied
+  rows. `WS_EX_COMPOSITED` on the parent made the attribute columns render
+  blank intermittently and is not usable as-is.
+- `RDW_ERASE` after the scroll was also tested. It did not remove the copied
+  band: the scroll blit happens inside the ListView's scroll handling, before
+  the invalidation/erase. One run also failed to advance the top index at all
+  (`top=0`), so redrawing inside the scroll message can interfere with the
+  ListView; a rerun advanced and still showed duplicated rows.
 
-## Next hypotheses (not yet tested)
+## Attempted Task Tree fixes (reverted)
 
-| Hypothesis | Suggested experiment |
-|---|---|
-| `LVS_EX_DOUBLEBUFFER` + title post-paint is incompatible during bulk scroll | Temporarily remove `LVS_EX_DOUBLEBUFFER` from `m_lcTasks` only and repeat the page-down test. |
-| The title list retains copied pixels and does not repaint the exposed range | After the synced scroll, force `RedrawWindow(m_lcTasks, NULL, NULL, RDW_INVALIDATE \| RDW_ERASE \| RDW_UPDATENOW)` and measure. |
-| Custom draw post-paint is skipped while the control asks only for prepaint | Return `CDRF_SKIPDEFAULT` from the title item prepaint and draw the full title item in one stage, or move to a single list control. |
-| Two-window scroll sync is inherently racy | Wrap the paired scroll in `WM_SETREDRAW(FALSE)`/`TRUE` or replace the title/column split with one list view. |
+All three attempts were built and tested manually; none produced an acceptable
+result, so no code from them remains in the working tree.
 
-## Findings from the CUST-004 harness (2026-11-12)
+1. **Match 6.9.6 exactly: remove `TVS_EX_DOUBLEBUFFER` from tree views**
+   (`CTreeListSyncer::InitialiseStyles`). Result: the copied-row behaviour
+   changed, but every Page key or wheel turn produced a short white flash, even
+   when already at one end. The tree erased its background before painting the
+   scrolled band.
+2. **Keep no double buffer and suppress the flash**: return `TRUE` for the
+   tree's `WM_ERASEBKGND` and fill the empty area below the last item in
+   `CDDS_POSTPAINT`. Result: the flash was gone, but the copied-row artefact
+   returned for Page Up/Down.
+3. **Overwrite the copied rows after scrolling**: add
+   `CTreeListSyncer::RepaintScrolledPair` to invalidate and update both the tree
+   and its columns list after a scroll. Result: both the artefact and the
+   flicker were present together.
 
-The harness captured the artefact at 20 fps (`-recms 50`) and made the paint
-mechanism observable:
+The conclusion is that the current architecture (separate TreeView and columns
+ListView, both app-custom-drawn, with the syncer scrolling them separately)
+cannot reproduce the 6.9.6 behaviour with these local fixes. 6.9.6 used a single
+`COrderedTreeCtrl` whose columns were drawn in a non-client gutter, so the tree
+and its columns were rendered as one surface. Removing the double buffer in the
+modern split architecture exposes the trade-off directly: with double buffering
+the copied rows are visible, without it the erase flash is visible, and forcing
+a full repaint lets the capture/eye see both transitions.
 
-- The repeated row is a **copy of one painted row**, not a stale task lookup.
-  A temporary 3x5 magenta marker drawn in `OnPostPaintTaskTitle` appeared on the
-  repeated rows as well. A per-row repaint with a stale `lItemlParam` would paint
-  the marker on every row; a copied pixel block reproduces the marker too.
-- The same failure can appear in either pane: frame 4 of the reference run
-  (`ListScroll_20261112_034949`) had the title pane correct and the attribute
-  pane repeating ID `20`/its values; later runs showed the title pane repeating
-  one title.
-- `CHoldScrollRepaint` (hold both windows with `WM_SETREDRAW(FALSE)`, scroll,
-  resync, then `RedrawWindow(parent, RDW_INVALIDATE | RDW_UPDATENOW |
-  RDW_ALLCHILDREN)`) removed the settled top-index mismatch
-  (`syncErrors=0` for `-notches 2 -delay 0`), but 20 fps recording still caught
-  one-frame partial paints. `LockWindowUpdate(parent)` delayed the resync and
-  did not remove them.
-- Setting `WS_EX_COMPOSITED` on the syncer parent made the attribute columns
-  render blank intermittently, so it is not usable as-is.
-- Removing `LVS_EX_DOUBLEBUFFER` replaced the repeated rows with a blank title
-  pane during the transition (visible flicker), not a fix.
+## Why the old Task Tree was different
 
-Conclusion: the defect is the non-atomic paint of two independent child windows,
-not the task-ID/lParam lookup. Per-window double buffering, redraw suppression
-and `RedrawWindow` can only shorten the window in which a partial frame is
-visible; they cannot make a screen capture (or the user's eye) see one coherent
-state.
+6.9.6 did not enable `TVS_EX_DOUBLEBUFFER`. Without a backing bitmap, the tree
+paints each exposed row in place, so the old rows stay on screen until they are
+overwritten. With `TVS_EX_DOUBLEBUFFER`, the tree blits the old bitmap first and
+paints the new rows later, producing the copied-row artefact.
 
-## Recommended fix path
+The ListView has no equivalent "repaint without double buffer" switch that fixes
+this while also giving flicker-free scrolling; disabling `LVS_EX_DOUBLEBUFFER`
+there produces blank/flicker instead. This is why the list needs a different fix
+from the tree.
 
-1. Render the title and attribute panes into one surface and present that surface
-   atomically. The least invasive form is a single list control that owns both
-   the title/client column and the attribute columns; the splitter then becomes
-   a column boundary rather than a window boundary.
-2. If the two-window design must stay, add a parent-level compositor: paint both
-   child windows into one memory DC (`WM_PRINTCLIENT` or the existing
-   `SaveToImage` path) and blit the result to the parent once per scroll, with
-   the child windows hidden from direct screen painting during the scroll.
-3. Do not pursue task-ID/lParam or `LVN_GETDISPINFO` changes; the marker
-   experiment and the symmetric title/attribute failures rule that out.
+6.9.6 also used a single tree control whose attribute columns were drawn in a
+non-client gutter, so it did not have the modern separate columns ListView. The
+double-buffer difference and the single-surface architecture therefore both
+contribute; removing `TVS_EX_DOUBLEBUFFER` alone cannot reproduce 6.9.6.
 
-The CUST-004 `UIPerf::ListScrollSync` scenario should gate the work:
-`syncErrors=0`, settled `artifactSteps=0`, and a manual scan of the 20 fps JPEG
-sequence for repeated rows.
+## Recommended fix direction
 
-## Files touched in the investigation (now reverted)
+The local tree fixes above were tried and reverted; they cannot reproduce the
+6.9.6 behaviour in the split-window architecture. Only larger changes remain:
 
+1. **Return to a single-surface task view.** 6.9.6 used one `COrderedTreeCtrl`
+   with the columns painted in its non-client gutter. Reworking the modern Tree
+   and List views along those lines would make the rows and columns part of one
+   paint operation, as they were in 6.9.6.
+2. **Custom list/tree scrolling and rendering.** Keep the controls for input and
+   selection, but drive the visible row range yourself and repaint the client in
+   place instead of letting the control scroll. This is effectively an
+   owner-drawn control with its own top-row index.
+3. **Accept and contain.** If neither is acceptable, keep the current
+   double-buffered behaviour and document that a short copied-row frame can be
+   seen at high frame rates or on slow repaints. This does not match 6.9.6.
+
+Do not pursue task-ID/`lItemlParam` or `LVN_GETDISPINFO` changes. The marker
+experiment, the symmetric title/attribute failures, the 7.2.RC9 result and the
+`RDW_ERASE` result all rule that out. Do not retry any of the local tree fixes
+listed in "Attempted Task Tree fixes" without a new tree-scroll test; each was
+tried, built and rejected.
+
+### Acceptance criteria
+
+- The 60 fps sequence shows no frame in which a row is duplicated down the
+  viewport. A partially painted frame is acceptable if it shows the old rows
+  being overdrawn, as in 6.9.6, rather than copies.
+- `LVM_GETTOPINDEX` for the title and attribute lists match after each scroll
+  (`syncErrors=0`).
+- Settled pixel check reports `artifactSteps=0`.
+- Existing List View/Task Tree selection, inline edit, drag/drop and splitter
+  behaviour are unchanged; run the normal `TDLTest` suite.
+
+## Files involved
+
+No source changes are retained. The investigation touched these files and all
+were reverted:
+
+- `Core/Shared/TreeListSyncer.cpp`
+- `Core/Shared/TreeListSyncer.h`
+- `Core/ToDoList/TDLTaskTreeCtrl.cpp`
 - `Core/ToDoList/TDLTaskCtrlBase.h`
 - `Core/ToDoList/TDLTaskCtrlBase.cpp`
 - `Core/ToDoList/TDLTaskListCtrl.h`
 - `Core/ToDoList/TDLTaskListCtrl.cpp`
-- `Core/Shared/TreeListSyncer.h` (hold-redraw experiment)
-- `Core/Shared/TreeListSyncer.cpp` (hold-redraw experiment)
 
 ## Verification
 
-- Both attempted builds completed (`Unicode Debug|Win32` and
-  `Unicode Release|Win32`).
-- Manual testing confirmed the artefact remains, so the changes were reverted.
-- Full `TDLTest` run: 310240/310264 pass; the 24 failures are the pre-existing
+- Reverted tree with the current code builds (`Unicode Debug|Win32`) and the
+  CUST-004 `ListScrollSync` check still passes.
+- `TDLTest`: 310240/310264 pass; the 24 failures are the pre-existing
   `CTDCTaskMatcherTest::IndividualRules` failures already recorded in CUST-001.
-
+- The tree Page Up/Down experiments were validated manually only. There is no
+  automated tree-scroll scenario in CUST-004; adding one is a prerequisite for
+  any future attempt.
