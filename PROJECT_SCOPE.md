@@ -1,6 +1,6 @@
 # Project Scope and Dependency Map
 
-Companion to [ARCHITECTURE.md](ARCHITECTURE.md). This file records which projects are in
+Companion to [ARCHITECTURE.md](docs/ARCHITECTURE.md). This file records which projects are in
 scope for analyzing the core application and which can be ignored.
 
 ## 1. Analysis rule

@@ -10,7 +10,7 @@
 
 ## Why the Task Tree has its own path
 
-See [ARCHITECTURE.md §4.2.1](../ARCHITECTURE.md) for the comparison of the 6.9.6
+See [ARCHITECTURE.md §4.2.1](../docs/ARCHITECTURE.md) for the comparison of the 6.9.6
 single-tree/gutter design and the current split tree + attribute-List design.
 
 The Task Tree is not special because it is a tree. It is special because

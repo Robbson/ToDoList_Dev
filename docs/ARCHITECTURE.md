@@ -2,7 +2,7 @@
 
 > Scope: this document describes the **Core/ToDoList** application. Other projects are
 > included only where they are required dependencies or extension points. See
-> [PROJECT_SCOPE.md](PROJECT_SCOPE.md) for the include/exclude decision table and
+> [PROJECT_SCOPE.md](../PROJECT_SCOPE.md) for the include/exclude decision table and
 > [DATA_MODEL.md](DATA_MODEL.md) for a detailed data-model reference.
 
 - Solution: `Core/ToDoList_Core.sln` (26 projects) — minimal runtime subset: `Core/ToDoList_Only.sln` (7 projects)
@@ -102,7 +102,7 @@ Facts:
   `Core/ToDoList_Core.sln`, run `Core/TDLTest`, then build `Plugins/ToDoList_Plugins.sln`.
   The scripts reference legacy MSBuild/MSDev paths; the actual projects use toolset `v143`.
 
-See [PROJECT_SCOPE.md](PROJECT_SCOPE.md) for the per-project analysis scope.
+See [PROJECT_SCOPE.md](../PROJECT_SCOPE.md) for the per-project analysis scope.
 
 ---
 
@@ -289,7 +289,7 @@ through `CTDLTaskDependencyEditDlg`. Time tracking is a frame-level modeless dia
 
 The attributes pane is `CTDLTaskAttributeCtrl`, which currently hosts the property-grid
 editor `CTDLTaskAttributeListCtrl`. It is the intended seam for the planned optional
-legacy (v8.2-style) attribute bar; see [customized/index.md](customized/index.md), `CUST-001`.
+legacy (v8.2-style) attribute bar; see [customized/index.md](../customized/index.md), `CUST-001`.
 
 ---
 
@@ -495,7 +495,7 @@ Notes:
 - Only `Core/ToDoList`, `Core/ToDoListLib`, `Core/Interfaces`, `Core/Shared`,
   `Core/3rdParty` and `Core/3rdParty/Detours` are needed to understand the core runtime.
   Everything under `Plugins/` and the optional Core extension DLL projects can be ignored
-  for core analysis; see [PROJECT_SCOPE.md](PROJECT_SCOPE.md).
+  for core analysis; see [PROJECT_SCOPE.md](../PROJECT_SCOPE.md).
 
 ---
 

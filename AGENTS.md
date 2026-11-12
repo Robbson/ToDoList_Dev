@@ -1,8 +1,10 @@
 # AGENTS.md
 
 Starting point for agents working in this repository. Read this first, then
-[ARCHITECTURE.md](ARCHITECTURE.md). Detailed references:
-[PROJECT_SCOPE.md](PROJECT_SCOPE.md), [DATA_MODEL.md](DATA_MODEL.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Detailed references:
+[PROJECT_SCOPE.md](PROJECT_SCOPE.md), [docs/DATA_MODEL.md](docs/DATA_MODEL.md),
+[docs/UI_DECOUPLING_ANALYSIS.md](docs/UI_DECOUPLING_ANALYSIS.md),
+[docs/APPLICATION_STATE.md](docs/APPLICATION_STATE.md) and
 [customized/index.md](customized/index.md) (all intentional divergences from upstream).
 
 ## Repository at a glance
@@ -177,10 +179,13 @@ This repository is a customized fork. Before changing upstream behaviour:
 
 ## Analysis output expectations
 
-When asked to analyze or document, prefer producing/updating the root docs:
+When asked to analyze or document, prefer producing/updating the root docs and
+`docs/`:
 
-- `ARCHITECTURE.md` — system structure, flows, invariants.
-- `DATA_MODEL.md` — task/attribute/persistence details.
+- `docs/ARCHITECTURE.md` — system structure, flows, invariants.
+- `docs/DATA_MODEL.md` — task/attribute/persistence details.
+- `docs/UI_DECOUPLING_ANALYSIS.md` — business-logic ↔ MFC view coupling and UI-replacement feasibility.
+- `docs/APPLICATION_STATE.md` — INI/registry preferences, session and per-tasklist state, and persist timing.
 - `PROJECT_SCOPE.md` — included/excluded projects and dependencies.
 - `customized/index.md` + `customized/CUST-nnn-*.md` — all customized behaviour and its rationale.
 - `AGENTS.md` — this file.

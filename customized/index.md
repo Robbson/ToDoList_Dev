@@ -5,8 +5,8 @@ reviewed, tested and re-applied after upstream updates.
 
 - Upstream baseline: ToDoList **9.3.DP7** (file version `9,2,997,7`), branch `custom` at
   `63fc1aacc`, based on upstream `d3b7a917e`.
-- Architecture: [../ARCHITECTURE.md](../ARCHITECTURE.md)
-- Data model: [../DATA_MODEL.md](../DATA_MODEL.md)
+- Architecture: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
+- Data model: [../docs/DATA_MODEL.md](../docs/DATA_MODEL.md)
 - Project scope: [../PROJECT_SCOPE.md](../PROJECT_SCOPE.md)
 
 ## Folder layout
