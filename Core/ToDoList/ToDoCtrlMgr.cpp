@@ -961,7 +961,9 @@ int CToDoCtrlMgr::DeleteToDoCtrl(int nIndex)
 		FileMisc::DeleteFile(FileMisc::GetTempFilePath(sTempFile, _T("txt")), TRUE);
 	}
 
-	tdc.DestroyWindow();
+	if (tdc.GetSafeHwnd())
+		tdc.DestroyWindow();
+
 	delete &tdc;
 
 	return nNewSel;

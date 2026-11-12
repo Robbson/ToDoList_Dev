@@ -1,7 +1,7 @@
 # ToDoList Performance Analysis
 
 Status: **Phase 1 (static analysis) complete; UI paint and multi-document startup
-measured at runtime**
+measured at runtime; first startup fix implemented and verified (CUST-005)**
 Scope: `Core/ToDoList`, `Core/Shared`, `Core/3rdParty/SimpleSplitter.*`
 Date: 2026-11-12
 
@@ -41,11 +41,13 @@ is caused by "List View" actually being two independently painted list controls 
 and attribute columns) that are scrolled one after the other, and by the title text
 being drawn in `CDDS_ITEMPOSTPAINT` from `nmcd.lItemlParam`. See P0-4.
 
-A fifth, unrelated cost explains why the application feels slow to start when several
-documents are restored: startup time grows by roughly 1.4–1.8 s per additional tasklist,
-and that growth is almost entirely independent of file size and of the existing
-"delayed loading" option. Delayed loading defers only the task data, not the file read
-or the per-tab control construction. See P0-5.
+A fifth, unrelated cost explained why the application felt slow to start when several
+documents were restored: startup time grew by roughly 1.4–1.8 s per additional
+tasklist, almost entirely independent of file size and of the existing "delayed
+loading" option. Delayed loading deferred only the task data, not the per-tab window
+construction. This is now fixed (CUST-005): a delay-loaded tab creates its window on
+first activation, which reduces the marginal cost to ~85 ms per document. The remaining
+startup floor is still the largest single term. See P0-5.
 
 ---
 
@@ -448,37 +450,72 @@ the load loop (`2618-2695`), and the whole loop then runs synchronously inside
 `OnPostOnCreate` with no message pump. The frame is therefore visible while the process
 is unresponsive, which makes a 10+ document start look worse than it is.
 
-#### Recommended fix order
+#### Fix status: implemented (CUST-005)
 
-1. **Make delay-loaded tabs path-only.** Store path, project name and custom attribute
-   definitions in the tab entry and construct `CToDoCtrl` on first activation. This
-   removes the ~1.4–1.8 s per-document cost. `CToDoCtrlMgr::TDCITEM` currently requires
-   a live `pTDC` (`Core/ToDoList/ToDoCtrlMgr.h/.cpp`), so this needs a contained lazy
-   factory or a null-tolerant item; record it as a new `CUST-nnn` per `AGENTS.md`.
-2. **Interim, low-risk:** skip `CalcToDoCtrlRect`/`MoveWindow` for delay-loaded
-   controls in `AddToDoCtrl` (`ToDoListWnd.cpp:6957-6960`) so hidden tabs are not laid
-   out; build/size splitters and panes on first show. Skip per-tab idle column-width
-   recalculation while hidden.
-3. **Cheap header read.** `DelayLoad` needs only project name, custom attribute defs
-   and the earliest due date. Read just the prefix up to `<TASK` (or persist the
-   fields in the ini) instead of loading and DOM-parsing the whole file
-   (`ToDoCtrl.cpp:4643`, `TaskFile.cpp:300-305`, `XmlFile.cpp:1148-1190`). Note the
-   reminder check is already an ini lookup
-   (`Core/ToDoList/ToDoCtrlReminders.cpp:560-571`), so the header parse exists only for
-   the due-date pre-scan.
-4. **Defer per-tab bookkeeping** until first activation: time-tracker
-   `AddTasklist` (`ToDoListWnd.cpp:4537`), checkout/read-only checks
-   (`ToDoCtrlMgr.cpp:994-996`), and the find-dialog update
-   (`ToDoListWnd.cpp:4837`).
-5. **Reduce the fixed ~3.6 s floor.** `OnCreate` forces the content-plugin scan through
+**Done:** delay-loaded tabs no longer create a window until first activation.
+See [customized/CUST-005-delayed-tasklist-window.md](customized/CUST-005-delayed-tasklist-window.md).
+
+What was implemented, in the order the measurements pointed at:
+
+1. `NewToDoCtrl` split into `AllocToDoCtrl` (object only) and
+   `CreateToDoCtrl` (window + font/styles/theme/prefs). `DelayOpenTaskList` now allocates
+   the object without the window; `EnsureToDoCtrlWindow` creates and sizes it from
+   `VerifyTaskListOpen` on first activation. `AddToDoCtrl` no longer lays out or shows a
+   window-less tab, and `OpenTaskList` applies the runtime preferences that were skipped.
+2. `CToDoCtrlMgr::DeleteToDoCtrl` tolerates a window-less tab, and `UpdateUITheme` skips
+   them (they are themed on creation).
+3. Location-level `CScopedLogTimer`s were added to the delay-open, add, create and
+   ensure-window paths, using the existing "PERMANENT LOGGING" convention.
+
+This was smaller than the originally planned "path-only tab" because the
+`CFilteredToDoCtrl` constructor turned out to be cheap: the cost was entirely in
+`Create`/`OnInitDialog`. Keeping the object means none of the 335 `GetToDoCtrl()` call
+sites or the 58 `pTDC` accesses in `CToDoCtrlMgr` had to become null-tolerant.
+
+Measured effect (Release, same fixtures, log-settle method with the constant 4 s
+window subtracted):
+
+| Scenario | Docs | Before | After |
+|---|---|---|---|
+| `Evidence Board.tdl` (7.7 KB) | 1 | 7.7 s | 7.8 s |
+| `Evidence Board.tdl` | 4 | 12.0 s | — |
+| `Evidence Board.tdl` | 12 | 26.4 s | **8.7 s** |
+| `biglist.tdl` (1.7 MB) | 12 | 27.1 s | **9.3 s** |
+
+Marginal cost per restored document: **≈1.5 s → ≈85 ms**. The 12-document start is
+about 3× faster and now nearly flat in document count.
+
+Verification: Debug and Release walked all six tabs of a six-document ini via
+`ID_VIEW_NEXT`; every tab created its window on first activation and logged
+`CToDoCtrl::Load(<file>)`, titles followed the active document, unactivated tabs were
+destroyed cleanly on close, and no new assertions were logged. `TDLTest` Release still
+reports 310937/310961 (the 24 pre-existing `CTDCTaskMatcherTest` locale failures).
+
+#### Remaining startup work
+
+These are the steps that were not needed to remove the per-document cost, in
+descending measured value. The single active document still pays them once.
+
+1. **Reduce the fixed ~3.6 s floor.** `OnCreate` forces the content-plugin scan through
    `m_mgrContent.SomePluginsHaveBadversions()` (`ToDoListWnd.cpp:1150` →
    `Core/Interfaces/ContentMgr.cpp:51-74`), which enumerates every DLL in the exe
    folder and `LoadLibrary`s each one. Defer it until content is first needed. Also
    measured: `CPreferences::SaveInternal` 78 ms, and menubar/theme/font/shortcut
    initialisation before the first tasklist.
-6. **Make startup progressive.** Post each open (or the whole last-file loop) to the
-   message queue so tabs appear and paint one by one instead of blocking
-   `OnPostOnCreate`.
+2. **Cheap header read.** `DelayLoad` still reads the whole file and builds the whole
+   MSXML DOM to obtain the project name, custom attribute definitions and earliest due
+   date (`ToDoCtrl.cpp:4643`, `TaskFile.cpp:300-305`, `XmlFile.cpp:1148-1190`). It now
+   costs only 15–32 ms per document. Read just the prefix up to `<TASK`, or persist the
+   fields in the ini. The reminder check is already an ini lookup
+   (`ToDoCtrlReminders.cpp:560-571`), so the parse exists only for the due-date
+   pre-scan.
+3. **Defer remaining per-tab bookkeeping** to first activation: time-tracker
+   `AddTasklist` (16–31 ms, `ToDoListWnd.cpp:4557`), checkout/read-only checks
+   (`ToDoCtrlMgr.cpp:994-996`) and the find-dialog update (`ToDoListWnd.cpp:4837`).
+4. **Make startup progressive.** Post each open (or the whole last-file loop) to the
+   message queue so tabs appear one at a time instead of blocking `OnPostOnCreate`.
+   `RestoreVisibility()` shows the frame before the loop (`ToDoListWnd.cpp:2575`), so
+   the window is currently visible but unresponsive during the whole load.
 
 ---
 
@@ -910,11 +947,14 @@ Acceptance targets for a fix:
 
 ### P0-5 – startup with many documents
 
-The six steps in P0-5's "Recommended fix order" are the startup equivalent of the
-splitter work and should be treated the same way: build the measurement in 7.5 first,
-change one step at a time, and compare the per-document marginal cost. The first two
-steps are local to `AddToDoCtrl`/`DelayOpenTaskList` and can be shipped ahead of the
-full lazy-tab redesign.
+**First step implemented** (CUST-005): no window is created for a delay-loaded tab
+until it is first activated, which removes the per-document cost (≈1.5 s → ≈85 ms for
+12 documents). See the "Fix status: implemented" section above for the code changes,
+measurements and verification.
+
+The remaining steps are the fixed startup floor, the cheap header read, the residual
+per-tab bookkeeping and progressive startup. Treat them like the splitter work: use the
+measurement in 7.5, change one step at a time and compare the marginal cost.
 
 ---
 
@@ -952,7 +992,14 @@ full lazy-tab redesign.
 - [x] Measured multi-document startup on Release: 1 doc 4.6 s, 12 docs 21.6 s (delayed
       loading) / 22.2 s (full loading); 12 × 7.7 KB ≈ 12 × 1.7 MB, so the cost is
       per-tab control creation, not file parsing.
-- [ ] Implement a P0-5 step (skip layout for delay-loaded tabs first) and re-run 7.5.
+- [x] Implemented the first P0-5 step: delay-loaded tabs no longer create a window
+      until first activation ([customized/CUST-005-delayed-tasklist-window.md](customized/CUST-005-delayed-tasklist-window.md)).
+      Measured: marginal cost per restored document ≈1.5 s → ≈85 ms; 12 documents
+      26.4 s → 8.7 s. Debug and Release activation of all tabs verified; `TDLTest`
+      unchanged.
+- [ ] Reduce the remaining fixed startup floor (content-plugin scan in `OnCreate`).
+- [ ] Replace the whole-file `LoadHeader` parse with a header-prefix read.
+- [ ] Make startup progressive (post each document open).
 - [ ] Re-run the splitter experiments only after the harness passes the baseline.
 - [ ] Implement and measure the remaining P0 fixes (ghost tracker + inner splitter).
 - [ ] Re-run the measurement matrix and update this document with numbers.

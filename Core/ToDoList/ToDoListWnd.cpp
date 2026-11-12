@@ -1036,7 +1036,10 @@ void CToDoListWnd::UpdateUITheme()
 		for (int nCtl = 0; nCtl < GetTDCCount(); nCtl++)
 		{
 			CFilteredToDoCtrl& tdc = GetToDoCtrl(nCtl);
-			tdc.SetUITheme(m_theme);
+
+			// Delay-loaded tasklists have no window and are themed on creation
+			if (tdc.GetSafeHwnd())
+				tdc.SetUITheme(m_theme);
 		}
 
 		if (m_dlgFindTasks.GetSafeHwnd())
@@ -4467,6 +4470,11 @@ TDC_FILE CToDoListWnd::DelayOpenTaskList(LPCTSTR szFilePath)
 {
 	ASSERT (Prefs().GetEnableDelayedLoading()); // sanity check
 
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	CScopedLogTimer log(_T("CToDoListWnd::DelayOpenTaskList(%s)"), FileMisc::GetFileNameFromPath(szFilePath));
+	log.LogStart();
+	///////////////////////////////////////////////////////////////////
+
 	// decode/prepare filepath
 	CString sFilePath(szFilePath);
 	TSM_TASKLISTINFO storageInfo;
@@ -4481,7 +4489,14 @@ TDC_FILE CToDoListWnd::DelayOpenTaskList(LPCTSTR szFilePath)
 		return TDCF_SUCCESS;
 
 	// delay load the file, visible but disabled
-	CFilteredToDoCtrl* pTDC = NewToDoCtrl(FALSE);
+	// note: the window itself is not created until the tasklist is first
+	// activated (see EnsureToDoCtrlWindow) because creating it costs more
+	// than reading the whole file
+	CFilteredToDoCtrl* pTDC = AllocToDoCtrl();
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   DelayOpenTaskList(NewToDoCtrl)"));
+	///////////////////////////////////////////////////////////////////
 
 	// if this is a 'special' temp file then assume TDL automatically
 	// named it when handling WM_ENDSESSION. 
@@ -4490,6 +4505,10 @@ TDC_FILE CToDoListWnd::DelayOpenTaskList(LPCTSTR szFilePath)
 
 	if (bDelayLoad)
 		bDelayLoad = pTDC->DelayLoad(sFilePath, dtEarliest);
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   DelayOpenTaskList(DelayLoad)"));
+	///////////////////////////////////////////////////////////////////
 
 	if (bDelayLoad)
 	{
@@ -4523,7 +4542,9 @@ TDC_FILE CToDoListWnd::DelayOpenTaskList(LPCTSTR szFilePath)
 	// and fallback on the default load mechanism
 	if (!bDelayLoad)
 	{
-		pTDC->DestroyWindow();
+		if (pTDC->GetSafeHwnd())
+			pTDC->DestroyWindow();
+
 		delete pTDC;
 
 		// note: we use the original filepath in case it is 
@@ -4532,9 +4553,17 @@ TDC_FILE CToDoListWnd::DelayOpenTaskList(LPCTSTR szFilePath)
 	}
 	
 	int nCtrl = AddToDoCtrl(pTDC, &storageInfo);
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   DelayOpenTaskList(AddToDoCtrl)"));
+	///////////////////////////////////////////////////////////////////
 	
 	// Update time tracking widget
 	m_dlgTimeTracker.AddTasklist(pTDC, CTaskFile());
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   DelayOpenTaskList(TimeTracker)"));
+	///////////////////////////////////////////////////////////////////
 
 	// update due item status
 	if (CDateHelper::IsDateSet(dtEarliest))
@@ -4781,6 +4810,12 @@ TDC_FILE CToDoListWnd::OpenTaskList(CFilteredToDoCtrl* pTDC, LPCTSTR szFilePath,
 
 	BOOL bWasDelayed = pTDC->IsDelayLoaded();
 	BOOL bReloading = pTDC->HasFilePath();
+
+	// Apply runtime preferences that were skipped when this tab was
+	// delay-loaded. This preserves the original ordering (prefs before load)
+	// while moving the cost to first activation.
+	if (bWasDelayed)
+		UpdateToDoCtrlPreferences(pTDC);
 
 	TDC_FILE nOpen = pTDC->Load(sFilePath, tasks, m_sMasterPassword);
 
@@ -6949,15 +6984,30 @@ void CToDoListWnd::OnUpdatePrint(CCmdUI* pCmdUI)
 
 int CToDoListWnd::AddToDoCtrl(CFilteredToDoCtrl* pTDC, TSM_TASKLISTINFO* pInfo)
 {
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	CScopedLogTimer log(_T("CToDoListWnd::AddToDoCtrl()"));
+	log.LogStart();
+	///////////////////////////////////////////////////////////////////
+
 	// Add tdc first to ensure tab controls has some
 	// items before we query it for its size
 	int nSel = m_mgrToDoCtrls.AddToDoCtrl(pTDC, pInfo);
 
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   AddToDoCtrl(mgr)"));
+	///////////////////////////////////////////////////////////////////
+
 	// make sure size is right
+	// delay-loaded tabs are hidden and unsized until first activated
+	// (SelectToDoCtrl and VerifyTaskListOpen both resize them)
 	CRect rTDC;
 	
-	if (CalcToDoCtrlRect(rTDC))
+	if (!pTDC->IsDelayLoaded() && CalcToDoCtrlRect(rTDC))
 		pTDC->MoveWindow(rTDC);
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   AddToDoCtrl(MoveWindow)"));
+	///////////////////////////////////////////////////////////////////
 
 	if (!pTDC->IsDelayLoaded() && SelectToDoCtrl(nSel, FALSE))
 	{
@@ -6975,14 +7025,23 @@ int CToDoListWnd::AddToDoCtrl(CFilteredToDoCtrl* pTDC, TSM_TASKLISTINFO* pInfo)
 	}
 	else
 	{
-		pTDC->ShowWindow(SW_HIDE);
+		if (pTDC->GetSafeHwnd())
+			pTDC->ShowWindow(SW_HIDE);
 	}
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   AddToDoCtrl(Show/Select)"));
+	///////////////////////////////////////////////////////////////////
 
 	// Show the tab-bar as required
 	if (WantTasklistTabbarVisible() && !m_tabCtrl.IsWindowVisible())
 		Resize();
 
 	m_idleTasks.UpdateMenubarTabCloseBtnVisibility();
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	log.LogTimeElapsed(_T("   AddToDoCtrl(Tabbar)"));
+	///////////////////////////////////////////////////////////////////
 
 	return nSel;
 }
@@ -8192,20 +8251,41 @@ const CFilteredToDoCtrl& CToDoListWnd::GetToDoCtrl(int nIndex) const
 	return m_mgrToDoCtrls.GetToDoCtrl(nIndex);
 }
 
-CFilteredToDoCtrl* CToDoListWnd::NewToDoCtrl(BOOL bEnabled)
+CFilteredToDoCtrl* CToDoListWnd::NewToDoCtrl(BOOL bEnabled, BOOL bSkipPrefs)
 {
-	BOOL bWantHoldRedraw = ((m_bVisible > 0) && !IsIconic());
-	CHoldRedraw hr(bWantHoldRedraw ? GetSafeHwnd() : NULL);
-	
+	CFilteredToDoCtrl* pTDC = AllocToDoCtrl();
+
+	if (pTDC && CreateToDoCtrl(pTDC, bEnabled, bSkipPrefs))
+		return pTDC;
+
+	// else
+	delete pTDC;
+	return NULL;
+}
+
+CFilteredToDoCtrl* CToDoListWnd::AllocToDoCtrl()
+{
 	TDCCOLEDITFILTERVISIBILITY vis;
 
 	Prefs().GetDefaultColumnEditFilterVisibility(vis);
 	
-	CFilteredToDoCtrl* pTDC = new CFilteredToDoCtrl(m_mgrUIExtensions, 
-													m_mgrContent, 
-													m_mgrShortcuts,
-													m_tdiDefault.cfComments, 
-													vis);
+	return new CFilteredToDoCtrl(m_mgrUIExtensions, 
+								m_mgrContent, 
+								m_mgrShortcuts,
+								m_tdiDefault.cfComments, 
+								vis);
+}
+
+BOOL CToDoListWnd::CreateToDoCtrl(CFilteredToDoCtrl* pTDC, BOOL bEnabled, BOOL bSkipPrefs)
+{
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	CScopedLogTimer log(_T("CToDoListWnd::CreateToDoCtrl()"));
+	log.LogStart();
+	///////////////////////////////////////////////////////////////////
+
+	BOOL bWantHoldRedraw = ((m_bVisible > 0) && !IsIconic());
+	CHoldRedraw hr(bWantHoldRedraw ? GetSafeHwnd() : NULL);
+
 	// Give it a meaningful maximum size
 	CPreferences prefs;
 	CRect rCtrl;
@@ -8237,6 +8317,10 @@ CFilteredToDoCtrl* CToDoListWnd::NewToDoCtrl(BOOL bEnabled)
 	
 	if (pTDC && pTDC->Create(rCtrl, this, IDC_TODOLIST, FALSE, bEnabled))
 	{
+		// PERMANENT LOGGING //////////////////////////////////////////
+		log.LogTimeElapsed(_T("   CreateToDoCtrl(Create)"));
+		///////////////////////////////////////////////////////////////
+
 		// set font to our font
 		CDialogHelper::SetFont(pTDC, m_fontMain, FALSE);
 		
@@ -8244,12 +8328,25 @@ CFilteredToDoCtrl* CToDoListWnd::NewToDoCtrl(BOOL bEnabled)
 		// itself to override from this point on
 		InitGlobalStyles(*pTDC);
 
+// PERMANENT LOGGING //////////////////////////////////////////
+		log.LogTimeElapsed(_T("   CreateToDoCtrl(Styles)"));
+		///////////////////////////////////////////////////////////////
+
 		// Set initial theme before it becomes visible
 		pTDC->SetUITheme(m_theme);
-		
-		// rest of runtime preferences
-		UpdateToDoCtrlPreferences(pTDC);
 
+		// PERMANENT LOGGING //////////////////////////////////////////
+		log.LogTimeElapsed(_T("   CreateToDoCtrl(Theme)"));
+		///////////////////////////////////////////////////////////////
+		
+// rest of runtime preferences
+		if (!bSkipPrefs)
+			UpdateToDoCtrlPreferences(pTDC);
+
+		// PERMANENT LOGGING //////////////////////////////////////////
+		log.LogTimeElapsed(_T("   CreateToDoCtrl(Prefs)"));
+		///////////////////////////////////////////////////////////////
+		
 		if (GetTDCCount() == 0)
 		{
 			// Extensions are 'lazy' loaded so this is the first chance
@@ -8258,12 +8355,30 @@ CFilteredToDoCtrl* CToDoListWnd::NewToDoCtrl(BOOL bEnabled)
 			m_mgrContent.LoadPreferences(prefs, _T("ContentControls"), FALSE);
 		}
 		
-		return pTDC;
+		return TRUE;
 	}
 	
-	// else
-	delete pTDC;
-	return NULL;
+	return FALSE;
+}
+
+BOOL CToDoListWnd::EnsureToDoCtrlWindow(CFilteredToDoCtrl* pTDC)
+{
+	ASSERT(pTDC);
+
+	if (!pTDC || pTDC->GetSafeHwnd())
+		return (pTDC != NULL);
+
+	// Delay-loaded tasklists have no window until first activated
+	if (!CreateToDoCtrl(pTDC, TRUE, TRUE))
+		return FALSE;
+
+	// And it still needs sizing
+	CRect rTDC;
+
+	if (CalcToDoCtrlRect(rTDC))
+		pTDC->MoveWindow(rTDC);
+
+	return TRUE;
 }
 
 void CToDoListWnd::InitGlobalStyles(CFilteredToDoCtrl& tdc)
@@ -8838,6 +8953,11 @@ BOOL CToDoListWnd::VerifyTaskListOpen(int nIndex, BOOL bWantNotifyDueTasks, BOOL
 
 	// else
 	CFilteredToDoCtrl& tdc = GetToDoCtrl(nIndex);
+
+	// Delay-loaded tasklists have no window yet
+	if (!EnsureToDoCtrlWindow(&tdc))
+		return FALSE;
+
 	CString sFilePath = tdc.GetFilePath();
 
 	TSM_TASKLISTINFO storageInfo;

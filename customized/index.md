@@ -47,3 +47,4 @@ customized/
 | CUST-002 | Duplicated rows in List View while scrolling | Deferred (all targeted tree experiments reverted) | [CUST-002-list-view-stale-title.md](CUST-002-list-view-stale-title.md) |
 | CUST-003 | Splitter paint performance (attempted) | Deferred (three iterations tested; all reverted) | [CUST-003-splitter-paint-performance.md](CUST-003-splitter-paint-performance.md) |
 | CUST-004 | Automated UI performance/artefact harness | In progress (implemented/built; interactive baseline pending) | [CUST-004-ui-perf-harness.md](CUST-004-ui-perf-harness.md) |
+| CUST-005 | Deferred window creation for delay-loaded tasklists | Done | [CUST-005-delayed-tasklist-window.md](CUST-005-delayed-tasklist-window.md) |

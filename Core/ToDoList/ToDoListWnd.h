@@ -819,7 +819,10 @@ protected:
 	CFilteredToDoCtrl& GetToDoCtrl(int nIndex);
 	const CFilteredToDoCtrl& GetToDoCtrl() const;
 	const CFilteredToDoCtrl& GetToDoCtrl(int nIndex) const;
-	CFilteredToDoCtrl* NewToDoCtrl(BOOL bEnabled = TRUE);
+	CFilteredToDoCtrl* NewToDoCtrl(BOOL bEnabled = TRUE, BOOL bSkipPrefs = FALSE);
+	CFilteredToDoCtrl* AllocToDoCtrl();
+	BOOL CreateToDoCtrl(CFilteredToDoCtrl* pTDC, BOOL bEnabled, BOOL bSkipPrefs);
+	BOOL EnsureToDoCtrlWindow(CFilteredToDoCtrl* pTDC);
 	int AddToDoCtrl(CFilteredToDoCtrl* pCtrl, TSM_TASKLISTINFO* pInfo = NULL);
 	inline int GetTDCCount() const { return m_mgrToDoCtrls.GetCount(); }
 	BOOL SelectToDoCtrl(LPCTSTR szFilePath, BOOL bCheckPassword, int nNotifyDueTasksBy = -1);
