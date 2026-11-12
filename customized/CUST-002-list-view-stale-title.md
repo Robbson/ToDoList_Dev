@@ -76,6 +76,35 @@ The earlier candidate, `618e0bd56` (2016-09-28, "Fix horizontal scroll
 artifacts"), only removed horizontal-scroll workarounds and is not the cause of
 the vertical scroll change.
 
+## Who performs the scroll copy
+
+It is not a TodoList smooth-scroll animation. The visible movement is done by
+the Win32 common control itself (`SysListView32` / `SysTreeView32`):
+
+1. The control handles `WM_VSCROLL` or the Page key and calls `ScrollWindowEx`
+   (or the double-buffered equivalent) on its client area. That call copies the
+   existing pixels to the new position. This is why the row that was at the
+   bottom ("Spring") leaves a track as it moves up/down, while the row at the
+   top ("Maven") appears to stay put.
+2. The control invalidates only the newly exposed band.
+3. `WM_PAINT` then reaches the application. Our `NM_CUSTOMDRAW` handlers paint
+   the rows in that band, but the copied pixels are already on screen. The
+   control may also erase the band with `WM_ERASEBKGND`, which is the white
+   patch where a grid/background used to be.
+
+The application cannot insert an "erase the band and paint empty grid first"
+step between steps 1 and 2 through the public control API. `WM_SETREDRAW`,
+`LockWindowUpdate` and `WS_EX_COMPOSITED` were tried and either do not suppress
+the internal `ScrollWindowEx` copy or break the custom-drawn columns. There is
+no `LVM_SCROLL`/`TVM_SCROLL` variant that moves the top row without copying
+pixels.
+
+To get "blank/grid first, then new rows" the control must not scroll-copy at
+all. That requires owning the top-row index and painting the visible range
+yourself (a custom row-drawing control), or making the task view a single
+surface so the whole transition is one paint operation. That is why this is an
+architectural change rather than a small mitigation.
+
 ## Reproducing
 
 The [CUST-004 harness](CUST-004-ui-perf-harness.md) drives the real UI and can
