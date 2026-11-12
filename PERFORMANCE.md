@@ -340,8 +340,7 @@ for the title and columns).
 
 ---
 
-### P0-5: Multi-document startup is dominated by per-tab control creation, not by
-file loading
+### P0-5: Multi-document startup is dominated by per-tab control creation, not by file loading
 
 **Confirmed and measured.** This is independent of the splitter work and explains the
 "startup takes ages with my 10+ document config" report.
@@ -356,7 +355,7 @@ file loading
   `OpenTaskList` (active tasklist) or `DelayOpenTaskList` (all others, if
   `EnableDelayedLoading` is on, default TRUE in `PreferencesGenPage.cpp:236`, UI label
   `ToDoList.rc:252-254`).
-- `Core/ToDoList/ToDoListWnd.cpp:2697-2699` – a single `Resize`/`UpdateWindow` after
+- `Core/ToDoList/ToDoListWnd.cpp:2729-2732` – a single `Resize`/`UpdateWindow` after
   the whole loop.
 
 A 10+ document configuration therefore comes either from the ini or from repeated `-f`
@@ -443,12 +442,13 @@ Only **one** `CToDoCtrl::Load(` line appears in that run: the other 11 tabs real
 delay-loaded, so the remaining ~17 s produced no task data at all. The only logged
 per-tab work is 12 idle `RecalcUntrackedColumnWidths` passes of 15–47 ms (≈0.3 s).
 
-#### Why the window still looks hung
+#### Why the window looked hung (before CUST-006)
 
-`RestoreVisibility()` (called at `ToDoListWnd.cpp:2575`) shows the main window before
-the load loop (`2618-2695`), and the whole loop then runs synchronously inside
-`OnPostOnCreate` with no message pump. The frame is therefore visible while the process
-is unresponsive, which makes a 10+ document start look worse than it is.
+`RestoreVisibility()` showed the main window before the load loop, and the loop then ran
+synchronously inside `OnPostOnCreate` with no message pump. The frame was visible while
+the process was unresponsive, which made a 10+ document start look worse than it was.
+CUST-006 now shows the frame only once the first tasklist exists, and opens the
+remaining documents after it is visible.
 
 #### Fix status: implemented (CUST-005)
 
@@ -496,12 +496,30 @@ reports 310937/310961 (the 24 pre-existing `CTDCTaskMatcherTest` locale failures
 These are the steps that were not needed to remove the per-document cost, in
 descending measured value. The single active document still pays them once.
 
-1. **Reduce the fixed ~3.6 s floor.** `OnCreate` forces the content-plugin scan through
-   `m_mgrContent.SomePluginsHaveBadversions()` (`ToDoListWnd.cpp:1150` →
-   `Core/Interfaces/ContentMgr.cpp:51-74`), which enumerates every DLL in the exe
-   folder and `LoadLibrary`s each one. Defer it until content is first needed. Also
-   measured: `CPreferences::SaveInternal` 78 ms, and menubar/theme/font/shortcut
-   initialisation before the first tasklist.
+**Measurement caveat:** the absolute settle times in this document were taken with
+`-g`, and the module-state dump alone writes ~35 log lines at ~25 ms each, so they
+inflate startup by roughly 0.7–0.9 s. Relative before/after comparisons are unaffected.
+
+1. **Do not create the throwaway "pristine" tasklist when a session is restored.**
+   **Implemented (CUST-006).** `OnCreate` created a complete tasklist before the
+   restore loop (`ToDoListWnd.cpp:1165`) and `CheckRemovePristineTasklist` deleted it as
+   soon as the first real document opened. Measured for one document: `CreateToDoCtrl`
+   1125 ms (Create 484, preferences 610, `AddToDoCtrl` 344). The tasklist is now created
+   only when nothing will be restored or nothing could be opened, and the frame is
+   shown only once there is a tasklist to show. Release, two runs each, polled until
+   all tabs exist:
+
+   | Documents | Before | After |
+   |---|---|---|
+   | 3 | 5.16 / 5.28 s | **3.56 / 3.38 s** |
+   | 12 | 5.00 / 5.05 s | **3.71 / 3.46 s** |
+
+   See [customized/CUST-006-no-throwaway-tasklist.md](customized/CUST-006-no-throwaway-tasklist.md).
+   Two follow-on hardening changes were needed because a frame can now briefly have no
+   tasklist: `CN_UPDATE_COMMAND_UI` is ignored while empty (`OnCmdMsg`),
+   `IDLETASKS::Process` and `UpdateTimeTrackerTasks` bail out, the `CToDoCtrlMgr`
+   index checks only assert when non-empty, and the failed-load "re-add" path
+   registers its control with the time tracker.
 2. **Cheap header read.** `DelayLoad` still reads the whole file and builds the whole
    MSXML DOM to obtain the project name, custom attribute definitions and earliest due
    date (`ToDoCtrl.cpp:4643`, `TaskFile.cpp:300-305`, `XmlFile.cpp:1148-1190`). It now
@@ -510,12 +528,36 @@ descending measured value. The single active document still pays them once.
    (`ToDoCtrlReminders.cpp:560-571`), so the parse exists only for the due-date
    pre-scan.
 3. **Defer remaining per-tab bookkeeping** to first activation: time-tracker
-   `AddTasklist` (16–31 ms, `ToDoListWnd.cpp:4557`), checkout/read-only checks
-   (`ToDoCtrlMgr.cpp:994-996`) and the find-dialog update (`ToDoListWnd.cpp:4837`).
+   `AddTasklist` (16–31 ms, `ToDoListWnd.cpp:4628`), checkout/read-only checks
+   (`ToDoCtrlMgr.cpp:994-996`) and the find-dialog update (`ToDoListWnd.cpp:4920`).
 4. **Make startup progressive.** Post each open (or the whole last-file loop) to the
    message queue so tabs appear one at a time instead of blocking `OnPostOnCreate`.
-   `RestoreVisibility()` shows the frame before the loop (`ToDoListWnd.cpp:2575`), so
-   the window is currently visible but unresponsive during the whole load.
+   CUST-006 already shows the frame as soon as the first tasklist exists
+   (`ToDoListWnd.cpp:2603` and `ShowStartupWindow`), but the loop itself still runs
+   synchronously, so the frame is briefly visible but unresponsive while the remaining
+   documents open.
+
+#### Plugin scans: measured, not worth deferring
+
+The earlier hypothesis that the plugin scan dominated the fixed floor is **wrong**.
+Permanent timers were added to both managers (`CContentMgr::Initialize` and
+`CUIExtensionMgr::Initialize`) and measured on Release with the 15 plugin DLLs
+(~9.7 MB) present in the exe folder:
+
+| Scan | Time |
+|---|---|
+| `CContentMgr::Initialize` | 63–78 ms |
+| `CUIExtensionMgr::Initialize` | 63–78 ms |
+
+The two totals include their own log writes. A first attempt that logged every DLL
+reported 469 ms and 328 ms, but that was measurement overhead: 30 extra `LogText`
+calls at ~25 ms each. Per-DLL data from that run is still useful: all 15 DLLs are
+probed, only `RTFContentCtrl.dll` is a content plugin, and six are UI extensions.
+
+So deferring the scans would save ~0.14 s at the cost of a plugin-contract change for
+the bad-version warning and the per-plugin preferences. Not worth it; the pristine
+tasklist above is 8× larger. The timers are kept (they are once-per-process and gated
+on logging) so the number can be re-checked after plugin changes.
 
 ---
 
@@ -997,7 +1039,17 @@ measurement in 7.5, change one step at a time and compare the marginal cost.
       Measured: marginal cost per restored document ≈1.5 s → ≈85 ms; 12 documents
       26.4 s → 8.7 s. Debug and Release activation of all tabs verified; `TDLTest`
       unchanged.
-- [ ] Reduce the remaining fixed startup floor (content-plugin scan in `OnCreate`).
+- [x] Measured the content/UI-extension plugin scans: `CContentMgr::Initialize`
+      63–78 ms and `CUIExtensionMgr::Initialize` 63–78 ms. Earlier attribution of the
+      startup floor to the plugin scan was wrong (the 469/328 ms first figures were
+      per-DLL log I/O). The next-largest fixed item is the pristine tasklist created at
+      `OnCreate` and immediately thrown away when a document is restored (~1.1 s).
+- [x] Removed the throwaway pristine tasklist ([customized/CUST-006-no-throwaway-tasklist.md](customized/CUST-006-no-throwaway-tasklist.md)).
+      The frame is now shown only once a tasklist exists. Measured (Release, polled
+      until all tabs exist): 3 documents 5.22 s → 3.47 s; 12 documents 5.03 s → 3.59 s.
+      Six startup variants (multi-document, missing file, no session, `-e`, reload
+      disabled, `-f`) verified in Debug and Release with zero new assertions; `TDLTest`
+      unchanged.
 - [ ] Replace the whole-file `LoadHeader` parse with a header-prefix read.
 - [ ] Make startup progressive (post each document open).
 - [ ] Re-run the splitter experiments only after the harness passes the baseline.

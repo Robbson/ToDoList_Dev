@@ -133,6 +133,7 @@ protected:
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
 	virtual int OnCreate(LPCREATESTRUCT lpCreateStruct);
 	virtual BOOL OnCommand(WPARAM wParam, LPARAM lParam);
+	virtual BOOL OnCmdMsg(UINT nID, int nCode, void* pExtra, AFX_CMDHANDLERINFO* pHandlerInfo);
 
 protected:
 	CEnBrowserCtrl m_IE;
@@ -688,7 +689,8 @@ protected:
 	virtual void LoadSettings();
 	virtual void SaveSettings();
 	void RestorePosition();
-	void RestoreVisibility();
+	void RestoreVisibility(BOOL bShow = TRUE);
+	void ShowStartupWindow();
 	
 	TDC_FILE DelayOpenTaskList(LPCTSTR szFilePath); // 0 = failed, 1 = success, -1 = cancelled
 	TDC_FILE OpenTaskList(LPCTSTR szFilePath, BOOL bNotifyDueTasks = TRUE); // 0 = failed, 1 = success, -1 = cancelled
@@ -829,6 +831,7 @@ protected:
 	BOOL SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDueTasksBy = -1, BOOL bNotifyError = TRUE);
 	int GetSelToDoCtrl() const;
 	BOOL CreateNewTaskList(BOOL bAddDefTask, BOOL bByUser);
+	BOOL WillRestoreLastSession() const;
 	BOOL VerifyToDoCtrlPassword() const;
 	BOOL VerifyToDoCtrlPassword(int nIndex) const;
 

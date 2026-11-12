@@ -49,10 +49,12 @@ enum STATUS_IMAGE
 
 /////////////////////////////////////////////////////////////////////////////
 
+// Note: during startup restore there can legitimately be no tasklists
+// yet, in which case an invalid index is not a bug
 #define CHECKVALIDINDEX(i)        \
 if (!VALIDINDEX(i))               \
 {                                 \
-	ASSERT(0);                    \
+	ASSERT(GetCount() == 0);      \
 	return;                       \
 }
 
@@ -61,7 +63,7 @@ if (!VALIDINDEX(i))               \
 #define CHECKVALIDINDEXRET(i, ret)\
 if (!VALIDINDEX(i))               \
 {                                 \
-	ASSERT(0);                    \
+	ASSERT(GetCount() == 0);      \
 	return ret;                   \
 }
 

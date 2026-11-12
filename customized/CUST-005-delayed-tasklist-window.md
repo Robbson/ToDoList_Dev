@@ -104,9 +104,11 @@ Release, same fixtures and ini as above, timing until the log stopped growing fo
 Marginal cost per restored document fell from ~1.5 s to ~85 ms. Startup with 12
 documents is roughly 3x faster and now scales almost flat with document count.
 
-The single active document is unchanged (it is loaded normally), so the remaining
-startup floor (3.5-4 s empty start, plugin scan, prefs, menus) is now the dominant
-term for a 10-document configuration. See `PERFORMANCE.md` P0-5 for that follow-up.
+The single active document is unchanged (it is loaded normally), so the fixed
+startup floor is now the dominant term for a 10-document configuration. The floor was
+subsequently measured: the content and UI-extension plugin scans together cost only
+~0.14 s, while the "pristine" tasklist that `OnCreate` builds and then discards when a
+document is restored costs ~1.1 s. See `PERFORMANCE.md` P0-5 for the follow-up.
 
 ## Verification
 

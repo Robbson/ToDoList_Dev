@@ -10,6 +10,7 @@
 #include "..\shared\filemisc.h"
 #include "..\shared\localizer.h"
 #include "..\shared\misc.h"
+#include "..\shared\ScopedTimer.h"
 
 #include "..\3rdParty\OSVersion.h"
 
@@ -37,6 +38,11 @@ void CUIExtensionMgr::Initialize() const
 {
 	if (m_bInitialized)
 		return;
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	CScopedLogTimer log(_T("CUIExtensionMgr::Initialize()"));
+	log.LogStart();
+	///////////////////////////////////////////////////////////////////
 
 	// we need a non-const pointer to update the array
 	CUIExtensionMgr* pMgr = const_cast<CUIExtensionMgr*>(this);

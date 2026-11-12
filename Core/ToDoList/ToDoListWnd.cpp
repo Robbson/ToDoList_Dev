@@ -240,6 +240,10 @@ BOOL CToDoListWnd::IDLETASKS::Process()
 {
 	ASSERT(!m_tdl.m_bClosing);
 
+	// there may be no tasklist yet while restoring a previous session
+	if (m_tdl.GetTDCCount() == 0)
+		return FALSE;
+
 	if (!m_tdl.m_bClosing)
 	{
 		if (m_bUpdateCaption)
@@ -944,6 +948,16 @@ BOOL CToDoListWnd::OnHelpInfo(HELPINFO* /*pHelpInfo*/)
 	return FALSE;
 }
 
+BOOL CToDoListWnd::OnCmdMsg(UINT nID, int nCode, void* pExtra, AFX_CMDHANDLERINFO* pHandlerInfo)
+{
+	// While restoring a session there may be no tasklist yet, in which
+	// case the command UI handlers have nothing to work with
+	if ((nCode == CN_UPDATE_COMMAND_UI) && (GetTDCCount() == 0))
+		return TRUE;
+
+	return CFrameWnd::OnCmdMsg(nID, nCode, pExtra, pHandlerInfo);
+}
+
 BOOL CToDoListWnd::OnCommand(WPARAM wParam, LPARAM lParam)
 {
 	if (FileMisc::IsLoggingEnabled() && m_bLogCommands)
@@ -1145,9 +1159,14 @@ int CToDoListWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	// Session notifications
 	m_wndSessionStatus.Initialize(*this);
 
-	// add a barebones tasklist while we're still hidden
-	if (!CreateNewTaskList(FALSE, FALSE))
-		return -1;
+	// Add a barebones tasklist while we're still hidden, but only if we
+	// are not about to open one from the command line or restore a
+	// previous session, in which case it would be discarded immediately.
+	if (!WillRestoreLastSession())
+	{
+		if (!CreateNewTaskList(FALSE, FALSE))
+			return -1;
+	}
 
 	// notify users about dodgy content plugins
 	if (m_mgrContent.SomePluginsHaveBadversions())
@@ -1505,6 +1524,10 @@ BOOL CToDoListWnd::InitTimeTrackDlg()
 
 void CToDoListWnd::UpdateTimeTrackerTasks(BOOL bAllTasks, const CTDCAttributeMap& mapAttrib)
 {
+	// there may be no tasklist yet while restoring a previous session
+	if (GetSelToDoCtrl() < 0)
+		return;
+
 	const CFilteredToDoCtrl& tdc = GetToDoCtrl();
 
 	if (bAllTasks)
@@ -2575,7 +2598,9 @@ LRESULT CToDoListWnd::OnPostOnCreate(WPARAM /*wp*/, LPARAM /*lp*/)
 	if (userPrefs.GetUseStickies(sStickiesPath, bShowFullTaskPathInSticky))
 		VERIFY(m_dlgReminders.UseStickies(TRUE, sStickiesPath, bShowFullTaskPathInSticky, TRUE));
 	
-	RestoreVisibility();
+	// restore position and decide visibility but stay hidden until
+	// there is a tasklist to show
+	RestoreVisibility(FALSE);
 	
 	// initialize Progress first time
 	m_statusBar.BeginProgress(CEnString(IDS_STARTUPPROGRESS));
@@ -2604,7 +2629,7 @@ LRESULT CToDoListWnd::OnPostOnCreate(WPARAM /*wp*/, LPARAM /*lp*/)
 		ProcessStartupOptions(m_startupOptions, TRUE);
 
 		// don't reload previous if a tasklist was actually loaded
-		if (!m_mgrToDoCtrls.IsPristine())
+		if (GetTDCCount() && !m_mgrToDoCtrls.IsPristine())
 			bReloadTasklists = FALSE;
 	}
 	else
@@ -2664,6 +2689,9 @@ LRESULT CToDoListWnd::OnPostOnCreate(WPARAM /*wp*/, LPARAM /*lp*/)
 							DelayOpenTaskList(sLastFile);
 					}
 				}
+
+				// show the window as soon as there is something to show
+				ShowStartupWindow();
 			}
 		}
 		
@@ -2696,6 +2724,15 @@ LRESULT CToDoListWnd::OnPostOnCreate(WPARAM /*wp*/, LPARAM /*lp*/)
 				CheckRemovePristineTasklist();
 		}
 	}
+
+	// If nothing else was opened then we need a tasklist
+	if (!GetTDCCount())
+	{
+		if (!CreateNewTaskList(FALSE, FALSE))
+			return -1;
+	}
+
+	ShowStartupWindow();
 
 	Resize();
 	UpdateWindow();
@@ -2867,7 +2904,7 @@ void CToDoListWnd::EnableTDLProtocol(BOOL bEnable)
 	}
 }
 
-void CToDoListWnd::RestoreVisibility()
+void CToDoListWnd::RestoreVisibility(BOOL bShow)
 {
 	const CPreferencesDlg& userPrefs = Prefs();
 	CPreferences prefs;
@@ -2917,6 +2954,10 @@ void CToDoListWnd::RestoreVisibility()
 			RestorePosition();
 		}
 		
+		// The window is shown separately, once there is a tasklist to show
+		if (!bShow)
+			return;
+		
 		int nCmdShow = (bMaximized ? SW_SHOWMAXIMIZED : (bMinimized ? SW_SHOWMINIMIZED : SW_SHOW));
  		ShowWindow(nCmdShow);
 
@@ -2946,6 +2987,13 @@ void CToDoListWnd::RestoreVisibility()
 	if (userPrefs.GetAlwaysOnTop() && !bMaximized)
 		SetWindowPos(&wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
 #endif
+}
+
+void CToDoListWnd::ShowStartupWindow()
+{
+	// show the window only once there is a tasklist for it to show
+	if ((m_bVisible > 0) && !IsWindowVisible())
+		RestoreVisibility(TRUE);
 }
 
 void CToDoListWnd::RestorePosition()
@@ -3010,6 +3058,24 @@ void CToDoListWnd::OnNewTasklist()
 	CreateNewTaskList(FALSE, TRUE);
 
 	GetToDoCtrl().SetFocus(TDCSF_PROJECTNAME);
+}
+
+BOOL CToDoListWnd::WillRestoreLastSession() const
+{
+	// mirrors the conditions used by OnPostOnCreate when deciding
+	// whether to open tasklists, so that the initial tasklist can be
+	// created only when nothing else will be opened
+	if (m_startupOptions.HasFilePath())
+		return TRUE;
+
+	if (m_startupOptions.HasFlag(TLD_STARTEMPTY))
+		return FALSE;
+
+	if (!Prefs().GetReloadTasklists())
+		return FALSE;
+
+	CPreferences prefs;
+	return (prefs.GetProfileInt(SETTINGS_KEY, _T("NumLastFiles"), 0) > 0);
 }
 
 BOOL CToDoListWnd::CreateNewTaskList(BOOL bAddDefTask, BOOL bByUser)
@@ -4745,6 +4811,10 @@ TDC_FILE CToDoListWnd::OpenTaskList(LPCTSTR szFilePath, BOOL bNotifyDueTasks)
 	}
 	else // re-add
 	{
+		// this can now be the only tasklist so it must be registered
+		// with the time tracker like any other
+		m_dlgTimeTracker.AddTasklist(pTDC, CTaskFile());
+
 		AddToDoCtrl(pTDC);
 	}
 

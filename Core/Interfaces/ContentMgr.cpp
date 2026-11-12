@@ -9,6 +9,7 @@
 #include "..\shared\filemisc.h"
 #include "..\shared\binarydata.h"
 #include "..\shared\localizer.h"
+#include "..\shared\ScopedTimer.h"
 
 #include "..\3rdParty\OSVersion.h"
 
@@ -59,6 +60,11 @@ void CContentMgr::Initialize() const
 {
 	if (m_bInitialized)
 		return;
+
+	// PERMANENT LOGGING //////////////////////////////////////////////
+	CScopedLogTimer log(_T("CContentMgr::Initialize()"));
+	log.LogStart();
+	///////////////////////////////////////////////////////////////////
 
 	// we need a non-const pointer to update the array
 	CContentMgr* pMgr = const_cast<CContentMgr*>(this);
