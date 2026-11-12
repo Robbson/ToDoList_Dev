@@ -16,6 +16,9 @@
     <ClCompile Include="TDLTestBase.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UIPerfTest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="ToDoCtrlDataTest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -91,6 +94,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="TDLTestBase.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UIPerfTest.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ToDoCtrlDataTest.h">

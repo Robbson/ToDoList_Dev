@@ -281,7 +281,7 @@ The difference is in how the two lists resolve the task during custom draw:
   `TDLTaskCtrlBase.cpp:2460-2461`.
 - **Title column** draws in `CDDS_ITEMPOSTPAINT` and uses
   `nmcd.lItemlParam` directly:
-  `TDLTaskListCtrl.cpp:371-377` -> `TDLTaskCtrlBase.cpp:2569` ->
+  `TDLTaskListCtrl.cpp:371-377` -> `TDLTaskCtrlBase.cpp:2574` ->
   `m_data.GetTrueTask(dwTrueID, ...)`.
 
 `OnPostPaintTaskTitle` returns `CDRF_SKIPDEFAULT` but, because the pre-paint stage did
@@ -316,6 +316,18 @@ separate windows and the title path draws after the control's default paint.
 4. Longer term, use a single list control for the title and attribute columns in list
    view. That removes the two-window sync problem entirely and makes double buffering
    cover the whole row.
+
+**Implementation status:** deferred. Two attempts were made and manually tested:
+resolving the title from `dwItemSpec`/`GetTaskID`, and resolving the
+`LVN_GETDISPINFO` callback plus the item rect from the item index. Neither removed
+the repeated-title artefact, so both changes were reverted. The evidence now points
+to a listview scroll/blit + custom-draw interaction rather than task-ID lookup: the
+repeated title is always the first visible row, and page-down repeats it down the
+whole viewport. See
+[customized/CUST-002-list-view-stale-title.md](customized/CUST-002-list-view-stale-title.md)
+for the attempted fixes and the next experiments (disable double buffering on the
+title list only; force a full redraw after the paired scroll; or use one list control
+for the title and columns).
 
 ---
 
@@ -567,9 +579,94 @@ The code already has a logging facility and permanent timers in useful places:
 
 ---
 
+### 7.4 Automated verification harness
+
+**Implemented:** `customized/CUST-004-ui-perf-harness.md` adds `CUIPerfTest` to
+`Core/TDLTest`, opt-in via `TDLTest.exe -ui`. It launches the app with generated
+tree/list fixtures (or `-tdl`), drives the splitter drag and list-wheel scroll with
+real `SendInput`, and compares on-screen `BitBlt` captures against a forced
+repaint to count stale pixels. It also records elapsed time, GDI-object counts and
+tree/attribute scroll sync.
+
+First baseline on the unmodified build: the splitter drag reports stale pixels on
+every step (`artifactSteps == steps`, `maxDiff` about 59k–78k pixels, `cleanDiff=0`)
+— the CUST-003 artefact is reproduced automatically and the clean reference is
+stable. List scrolling with the generated flat list is clean (`maxDiff=0..2`,
+scroll sync OK); CUST-002 may need the real `biglist.tdl`. `-uifix` (fixtures only)
+and `-nodrag` (window discovery only) are available for diagnosing the harness
+itself.
+
+Manual drag-and-eyeball testing is not sufficient for this class of change. Three
+CUST-003 iterations were built and tested by hand; two regressed repaint behaviour
+and one (`WS_EX_COMPOSITED`) broke the attribute pane and scroll synchronisation.
+See [customized/CUST-003-splitter-paint-performance.md](customized/CUST-003-splitter-paint-performance.md).
+Build a repeatable harness before attempting more P0 changes.
+
+Goals:
+
+1. Reproduce the live drag deterministically.
+2. Record timing, paint counts, GDI counts and a pass/fail artefact signal.
+3. Run the same scenario before and after a change and compare.
+
+Proposed design:
+
+- **Harness process:** a small Win32/MFC test executable (`TDLPerf`) or an extension
+  of `TDLTest` that launches `ToDoList.exe` with a fixed fixture tasklist and a
+  fixed window size. Record DPI and theme in the result header.
+- **Fixtures:** a large tree fixture and a large list-view fixture (for example
+  `biglist.tdl` if present, otherwise generated once and checked in under
+  `Core/TDLTest/Data`). Include enough rows/columns that paint cost is measurable.
+- **Input:** use `SendInput` (real mouse events), not synthetic `SendMessage`.
+  Message starvation and paint coalescing only reproduce with real input. Capture
+  the splitter window handle (enumerate children, or expose a debug-only
+  `WM_TDL_GETSPLITTER` message) and drive `SetCursorPos` + `LButtonDown/Move/Up`.
+  Insert short waits so the target's message loop runs between moves.
+- **Frame capture:** during and after the drag, call `PrintWindow`/`BitBlt` on the
+  `CToDoCtrl` client into a bitmap. Since `PrintWindow` renders a fresh image, use
+  `BitBlt` from the screen DC for the "what the user currently sees" signal.
+- **Artefact signal:** after each drag step, capture the on-screen client, then
+  force a full repaint (for example `RedrawWindow(..., RDW_INVALIDATE |
+  RDW_UPDATENOW | RDW_ALLCHILDREN)`) and capture again. A non-zero pixel diff
+  beyond a small tolerance means stale/intermediate pixels were visible. Also
+  capture after `LButtonUp` and compare with the at-rest rendering. A second check
+  compares tree-list and attribute-list scroll positions.
+- **Metrics:** wrap the existing hot paths with counters gated by an environment
+  variable such as `TDL_PERF_LOG`:
+  - `CSimpleSplitter::OnMouseMove`, `ResizePaneWindows`
+  - `CToDoCtrl::OnSplitChange`, `CTabbedToDoCtrl::ReposTaskCtrl`
+  - `CTreeListSyncer::Resize`, `InvalidateAll`, `UpdateAll`
+  - `WM_PAINT`/`WM_ERASEBKGND` count and duration for the tree/list/header
+  - `GetGuiResources(GR_GDIOBJECTS)` before/after
+  Emit one machine-readable line per scenario (`key=value`), not free text.
+- **Acceptance (from 7.3):** no pixel diff above tolerance at any captured step;
+  tree and attribute scroll synchronisation intact; drag wall time and paint count
+  recorded and not worse than the recorded baseline; GDI count stable.
+- **Baseline protocol:** run the harness on the unmodified tree, store the result
+  as the baseline, then run each candidate change and compare both the artefact
+  signal and the metrics.
+
+The harness itself is a `customized/` artefact (new `CUST-nnn`) because it adds
+non-upstream test code.
+
+---
+
 ## 8. Recommended fix sequence
 
 ### P0 – artefact and drag responsiveness
+
+0. **Status:** the whole P0 implementation attempt is **deferred and reverted**;
+   details in
+   [customized/CUST-003-splitter-paint-performance.md](customized/CUST-003-splitter-paint-performance.md).
+   Findings:
+   - Removing the per-move `UpdateWindow()` starves `WM_PAINT` while the mouse is
+     captured, leaving stale scrollbar copies.
+   - `WS_EX_COMPOSITED` on `CToDoCtrl` makes the app much slower, hides the
+     attribute table and desynchronises tree/attribute scrolling.
+   - Erase/clip cleanup alone was never evaluated in isolation because the first
+     build also removed the forced repaints.
+   Do not retry items 2–6 until the harness in section 7.4 exists. Item 1 (ghost
+   tracker) remains intentionally deferred: live pane movement is the user's
+   manual check for optimisation progress.
 
 1. **Stop live `MoveWindow` during splitter tracking.**
    Implement classic drag tracking: draw only a ghost/tracker line while the mouse is
@@ -626,11 +723,26 @@ The code already has a logging facility and permanent timers in useful places:
 - [x] Identified column-width recalculation and filter/tab-switch blocking paths.
 - [x] Identified the list-view artefact as a two-list sync/stale-title problem rather
       than a missing double buffer (see P0-4).
+- [x] Attempted two fixes (item-index task lookup in custom draw and
+      `LVN_GETDISPINFO`, plus forced item-rect resolution); both failed manual
+      verification and were reverted.
 - [ ] Capture ETW/profiler data for the scenarios in section 7.
-- [ ] Trace title-list `NM_CUSTOMDRAW` `dwItemSpec` vs `lItemlParam` and top index
-      during a synced scroll to confirm the stale-notification mechanism.
+- [ ] Test the listview scroll/blit hypotheses in CUST-002 (disable double buffering
+      on the title list only; force full redraw after the paired scroll; or use a
+      single list control).
 - [ ] Confirm splitter z-order and update-region overlap with Spy++.
-- [ ] Implement and measure the P0 fixes (ghost tracker + erase/clip cleanup).
+- [x] Attempted the P0-2 to P0-6 changes three times; all iterations were built and
+      manually tested and all were reverted. Results in
+      [customized/CUST-003-splitter-paint-performance.md](customized/CUST-003-splitter-paint-performance.md).
+      Key results: deferring `UpdateWindow()` starves `WM_PAINT` during live drag;
+      `WS_EX_COMPOSITED` hides the attribute table, desynchronises scrolling and is
+      much slower.
+- [x] Build the automated harness described in section 7.4
+      ([customized/CUST-004-ui-perf-harness.md](customized/CUST-004-ui-perf-harness.md)).
+- [x] Run the harness on the unmodified tree and record the baseline (splitter
+      artefacts reproduced; list scroll clean with the synthetic fixture).
+- [ ] Re-run the splitter experiments only after the harness passes the baseline.
+- [ ] Implement and measure the remaining P0 fixes (ghost tracker + inner splitter).
 - [ ] Re-run the measurement matrix and update this document with numbers.
 
 ---

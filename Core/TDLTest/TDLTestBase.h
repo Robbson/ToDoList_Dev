@@ -25,6 +25,7 @@ public:
 	BOOL Initialise(const CString& sOutputDir, const CString& sControlDir);
 	
 	BOOL GetWantPerformanceTests() const { return HasCommandlineFlag(_T("p")); }
+	CString GetCommandlineOption(LPCTSTR szOption) const { return m_cmdInfo.GetOption(szOption); }
 	
 	CString GetOutputFilePath(const CString& sSubDir, const CString& sFilename, const CString& sExt) const;
 	CString GetControlFilePath(const CString& sSubDir, const CString& sFilename, const CString& sExt) const;

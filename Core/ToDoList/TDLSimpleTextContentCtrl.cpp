@@ -444,6 +444,7 @@ BOOL CTDLSimpleTextContentCtrl::Create(DWORD dwStyle, const RECT& rect, CWnd* pP
  	return CUrlRichEditCtrl::Create(dwStyle, rect, pParentWnd, nID);
 }
 
+// TODO: Check where this message is handled to make our modifications
 void CTDLSimpleTextContentCtrl::SetContentFont(HFONT hFont)
 {
 	SendMessage(WM_SETFONT, (WPARAM)hFont);

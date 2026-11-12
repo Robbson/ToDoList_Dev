@@ -1,0 +1,25 @@
+
+  CUIPerfTest: exe=E:\Dev\opensource\windows\TDL\ToDoList_Dev\Core\ToDoList\Unicode_Debug\..\..\ToDoList\Unicode_Debug\ToDoList.exe
+
+Test 'UIPerf::SplitterDrag' started --------
+
+  Test [ 1] failed:    Expected "FALSE" == "TRUE"
+
+   1/ 1 of 'UIPerf::SplitterDrag' tests FAILED
+
+Test 'UIPerf::SplitterDrag' ended ----------
+
+Test 'UIPerf::ListScrollSync' started --------
+
+  Test [ 1] failed:    Expected "FALSE" == "TRUE"
+
+   1/ 1 of 'UIPerf::ListScrollSync' tests FAILED
+
+Test 'UIPerf::ListScrollSync' ended ----------
+
+   2/ 2 of 'CUIPerfTest' tests FAILED
+
+   2/ 2 of 'UIPerf' tests FAILED
+
+  2 tests took 1 seconds
+  2 UI test(s) FAILED
