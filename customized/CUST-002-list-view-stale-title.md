@@ -141,12 +141,61 @@ Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -tdl ^
 | Custom draw post-paint is skipped while the control asks only for prepaint | Return `CDRF_SKIPDEFAULT` from the title item prepaint and draw the full title item in one stage, or move to a single list control. |
 | Two-window scroll sync is inherently racy | Wrap the paired scroll in `WM_SETREDRAW(FALSE)`/`TRUE` or replace the title/column split with one list view. |
 
+## Findings from the CUST-004 harness (2026-11-12)
+
+The harness captured the artefact at 20 fps (`-recms 50`) and made the paint
+mechanism observable:
+
+- The repeated row is a **copy of one painted row**, not a stale task lookup.
+  A temporary 3x5 magenta marker drawn in `OnPostPaintTaskTitle` appeared on the
+  repeated rows as well. A per-row repaint with a stale `lItemlParam` would paint
+  the marker on every row; a copied pixel block reproduces the marker too.
+- The same failure can appear in either pane: frame 4 of the reference run
+  (`ListScroll_20261112_034949`) had the title pane correct and the attribute
+  pane repeating ID `20`/its values; later runs showed the title pane repeating
+  one title.
+- `CHoldScrollRepaint` (hold both windows with `WM_SETREDRAW(FALSE)`, scroll,
+  resync, then `RedrawWindow(parent, RDW_INVALIDATE | RDW_UPDATENOW |
+  RDW_ALLCHILDREN)`) removed the settled top-index mismatch
+  (`syncErrors=0` for `-notches 2 -delay 0`), but 20 fps recording still caught
+  one-frame partial paints. `LockWindowUpdate(parent)` delayed the resync and
+  did not remove them.
+- Setting `WS_EX_COMPOSITED` on the syncer parent made the attribute columns
+  render blank intermittently, so it is not usable as-is.
+- Removing `LVS_EX_DOUBLEBUFFER` replaced the repeated rows with a blank title
+  pane during the transition (visible flicker), not a fix.
+
+Conclusion: the defect is the non-atomic paint of two independent child windows,
+not the task-ID/lParam lookup. Per-window double buffering, redraw suppression
+and `RedrawWindow` can only shorten the window in which a partial frame is
+visible; they cannot make a screen capture (or the user's eye) see one coherent
+state.
+
+## Recommended fix path
+
+1. Render the title and attribute panes into one surface and present that surface
+   atomically. The least invasive form is a single list control that owns both
+   the title/client column and the attribute columns; the splitter then becomes
+   a column boundary rather than a window boundary.
+2. If the two-window design must stay, add a parent-level compositor: paint both
+   child windows into one memory DC (`WM_PRINTCLIENT` or the existing
+   `SaveToImage` path) and blit the result to the parent once per scroll, with
+   the child windows hidden from direct screen painting during the scroll.
+3. Do not pursue task-ID/lParam or `LVN_GETDISPINFO` changes; the marker
+   experiment and the symmetric title/attribute failures rule that out.
+
+The CUST-004 `UIPerf::ListScrollSync` scenario should gate the work:
+`syncErrors=0`, settled `artifactSteps=0`, and a manual scan of the 20 fps JPEG
+sequence for repeated rows.
+
 ## Files touched in the investigation (now reverted)
 
 - `Core/ToDoList/TDLTaskCtrlBase.h`
 - `Core/ToDoList/TDLTaskCtrlBase.cpp`
 - `Core/ToDoList/TDLTaskListCtrl.h`
 - `Core/ToDoList/TDLTaskListCtrl.cpp`
+- `Core/Shared/TreeListSyncer.h` (hold-redraw experiment)
+- `Core/Shared/TreeListSyncer.cpp` (hold-redraw experiment)
 
 ## Verification
 
