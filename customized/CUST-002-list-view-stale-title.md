@@ -58,6 +58,69 @@ same title repeated, and after the second fix the problem remained. The code was
 therefore reverted to keep the working tree clean. The investigation above remains
 useful, but the actual paint/skip mechanism is not yet proven.
 
+## Verification harness (CUST-004)
+
+The [CUST-004 harness](CUST-004-ui-perf-harness.md) has a `UIPerf::ListScrollSync`
+scenario that drives List View with the real wheel and checks the title list and
+column list `LVM_GETTOPINDEX` values against each other. This top-index mismatch is
+the reliable automated signal for this bug: the title column lags behind the
+attribute columns by several rows.
+
+```bat
+:: automated fast-scroll check using the generated tasklist (no -tdl needed)
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -notches 2 -delay 0 -record
+
+:: real sample, 3 Page Downs, 20 fps JPEG recording, cropped to the list windows
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll ^
+  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
+  -size 800x600 -capture task -keys -record -recms 50 -steps 6 -delay 150
+
+:: manual: leave List View open and record while you press Page Up/Down
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -record ^
+  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
+  -size 800x600 -capture task -recms 50
+
+:: same, settled pixel check (also catches stale attribute-pane fields)
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll ^
+  -tdl ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl ^
+  -size 1200x1200 -keys -steps 20
+
+:: manual run: opens the tasklist in List View and leaves it open
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -tdl ^
+  ..\..\..\..\ToDoList_Test\Tasklists\Commercial Construction.tdl
+```
+
+- Fast-scroll pass criterion: `syncErrors=0` and the top index has advanced.
+- 20 fps, 3 Page Downs (`-recms 50 -steps 6 -delay 150`) recorded 12 JPEG frames at
+  745x400. Frame 4 shows the title column stale: `Commercial Construction`,
+  `Three-story Office Building`, ... against IDs 19, 20, 21 and the scrolled
+  attribute columns. Frame 5 shows the titles caught up. This is CUST-002 captured
+  visually; the synchronous top-index query missed it because it ran after the
+  catch-up.
+- `-maximize` is currently not recommended for key scrolling: in the test run the
+  Page Down keys did not scroll after it (`top=0`). `-capture task` already excludes
+  the filter/group-by panels and attribute pane, so maximize is unnecessary.
+- Baseline with `Commercial Construction.tdl` + Page Down:
+  `ListScroll[2]: top1=21 top2=42 MISMATCH`, `syncErrors=1`. The title list lags
+  the attribute columns by a page.
+- Settled Page Down run on the same file: `maxDiff=1,166,022`,
+  `artifactSteps=5/10`. The on-screen frame shows the attribute pane fields blank
+  (`Allocated To`, `Dependency`, `Due Date`, ...) while the forced-repaint frame
+  shows them populated. So the pane next to the tree is affected too, not only the
+  title column.
+- Generated fixture baseline (no `-tdl`): `ListScroll[0]: top1=0 top2=5 MISMATCH`,
+  `syncErrors=1`; the first recorded JPEG shows titles `List task 5...` against IDs `11...`.
+- Settled wheel-only run (`maxDiff≈529`, `artifactSteps=0`) does not reproduce it;
+  use Page Down (`-keys`) and a tall window (`-size`), as above.
+- If `-tdl` is omitted the generated fixture is used. It is cached under
+  `%TEMP%\TDLPerf\Cache\`; add `-regenerate` after changing fixture code. Real
+  samples from the sibling `ToDoList_Test` repository are preferred.
+- Recorded frames are JPEGs `frame_NNNNN_<tick>.jpg` (fast mode) or
+  `scroll_NN_onscreen.bmp`/`_clean.bmp` (settled mode) under
+  `%TEMP%\TDLPerf\ListScroll_<timestamp>\`.
+- To generate a fixture and launch ToDoList yourself, run `-ui -uifix` and use the
+  printed `Manual list:` command line.
+
 ## What the screenshots establish
 
 - The repeated title is always the title of the **first visible row** at the top of
@@ -92,3 +155,4 @@ useful, but the actual paint/skip mechanism is not yet proven.
 - Manual testing confirmed the artefact remains, so the changes were reverted.
 - Full `TDLTest` run: 310240/310264 pass; the 24 failures are the pre-existing
   `CTDCTaskMatcherTest::IndividualRules` failures already recorded in CUST-001.
+

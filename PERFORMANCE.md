@@ -591,10 +591,17 @@ tree/attribute scroll sync.
 First baseline on the unmodified build: the splitter drag reports stale pixels on
 every step (`artifactSteps == steps`, `maxDiff` about 59k–78k pixels, `cleanDiff=0`)
 — the CUST-003 artefact is reproduced automatically and the clean reference is
-stable. List scrolling with the generated flat list is clean (`maxDiff=0..2`,
-scroll sync OK); CUST-002 may need the real `biglist.tdl`. `-uifix` (fixtures only)
-and `-nodrag` (window discovery only) are available for diagnosing the harness
-itself.
+stable. The settled list-scroll check is clean (`maxDiff≈529`, `artifactSteps=0`),
+but the fast-scroll sync check (`-record -notches 2 -delay 0`) reproduces CUST-002:
+`top1=0 top2=5 MISMATCH`, `syncErrors=1`, and the saved frame shows titles lagging
+the attribute columns. Generated fixtures are cached under `%TEMP%\TDLPerf\Cache\`
+(`-regenerate` to rebuild), but real samples from the sibling `ToDoList_Test`
+repository are preferred. `-record` now encodes JPEG frames in memory on a worker
+thread (no per-frame disk I/O) and writes them when the run stops; `-capture
+task|taskattr` crops to the interesting windows, `-maximize` hides the other panes
+and `-recms` sets the frame cadence. `-uifix` (fixtures only), `-uihold` (manual,
+optionally `-record` for manual JPEG capture), and `-nodrag` (window discovery
+only) are available for diagnosing the harness itself.
 
 Manual drag-and-eyeball testing is not sufficient for this class of change. Three
 CUST-003 iterations were built and tested by hand; two regressed repaint behaviour

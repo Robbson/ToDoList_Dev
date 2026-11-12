@@ -6,6 +6,8 @@
 
 #include <crtdbg.h>
 #include <objbase.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 
 #include "DateHelperTest.h"
 #include "FileMiscTest.h"
@@ -136,6 +138,11 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 	// CTaskFile needs MSXML, which requires COM on this thread
 	HRESULT hrCoInit = ::CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
+	// CImage needs GDI+ to be started once before worker-thread PNG saving
+	Gdiplus::GdiplusStartupInput gdiplusInput;
+	ULONG_PTR gdiplusToken = 0;
+	Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, NULL);
+
 //	CTDLTestBase::SelfTest();
 
 	CEnCommandLineInfo cmdInfo;
@@ -153,6 +160,9 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 // 	}
 
 	DoTests(utils);
+
+	if (gdiplusToken)
+		Gdiplus::GdiplusShutdown(gdiplusToken);
 
 	if (SUCCEEDED(hrCoInit))
 		::CoUninitialize();

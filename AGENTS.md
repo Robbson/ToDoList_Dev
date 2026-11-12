@@ -55,6 +55,19 @@ msbuild Core\ToDoList_Core.sln /t:Build /p:Configuration="Unicode Debug" /p:Plat
 Core\TDLTest\Unicode_Debug\TDLTest.exe
 ```
 
+```bat
+:: UI performance/artefact harness (interactive desktop; takes over the mouse)
+:: runs only CUIPerfTest; see customized/CUST-004-ui-perf-harness.md
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll   :: ListScrollSync only
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -notches 2 -delay 0 -record :: fast CUST-002 check
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uisplitter :: SplitterDrag only
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uihold     :: leave app open for manual testing
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uiscroll -uihold -record :: manual + JPEG frames
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -uifix      :: fixtures only, no GUI
+Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -nodrag     :: locate windows, no input
+```
+
 Notes:
 
 - `BuildDebug.bat` builds Core, then runs `TDLTest`, then builds `Plugins/ToDoList_Plugins.sln`.
@@ -64,6 +77,10 @@ Notes:
   to `Plugins/debug|release`.
 - Runtime plugins are loaded from the **executable directory only**. Copying a DLL
   elsewhere will not make it load.
+- The `-ui` harness is opt-in, needs a foreground interactive desktop, and is the
+  acceptance check for splitter/scroll rendering changes. Normal `TDLTest` runs skip
+  it. Debug `TDLTest` logs assertions to `%TEMP%\TDLTest_asserts.log` instead of
+  showing a dialog; set `TDL_ASSERT_LOG=0` to restore the dialog.
 
 ## Debug assertions
 

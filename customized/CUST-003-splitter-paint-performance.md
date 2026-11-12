@@ -86,10 +86,37 @@ completely out of sync. Reverted immediately.
 - `WS_EX_COMPOSITED` on the whole `CToDoCtrl` is not viable for this UI: it breaks
   the attribute pane and scroll synchronisation and is much slower.
 - The remaining ideas (per-move `WM_SETREDRAW` batching across splitter and task
-  view, or limiting composition to a smaller window) cannot be evaluated by
-  building and eyeballing the result. A repeatable automated measurement/artefact
-  check is required first; see the plan in
-  [../PERFORMANCE.md](../PERFORMANCE.md) section 7.4.
+  view, or limiting composition to a smaller window) must be evaluated with the
+  CUST-004 harness; see the retry protocol below.
+
+## Retry protocol (using CUST-004)
+
+The [CUST-004 harness](CUST-004-ui-perf-harness.md) now reproduces the splitter
+artefact automatically. Baseline on the unmodified build (`-ui -steps 3/4/8`):
+
+```text
+SplitterDrag[0]: maxDiff≈60k cleanDiff=0 artifactSteps=3/3 moved=1
+SplitterDrag[1]: maxDiff≈78k cleanDiff=0 artifactSteps=3/3 moved=1
+```
+
+`cleanDiff=0` means two forced repaints are identical, so the diff is genuine stale
+pixels. The saved `drag_NN_onscreen.bmp` / `drag_NN_clean.bmp` frames show the task
+view's right edge/Tags column still at the previous splitter width.
+
+Any retry must be evaluated in isolation and one change at a time:
+
+1. Command: `Core\TDLTest\Unicode_Debug\TDLTest.exe -ui -steps 8`.
+2. Acceptance: `moved=1`, `cleanDiff=0`, `artifactSteps=0`, with `maxDiff` at or
+   below the `-tol` threshold.
+3. Record `elapsedMs` and `gdi` against the baseline; do not accept an artefact
+   win that makes the drag materially slower.
+4. Keep the captured BMPs when a step fails; they identify the exact stale region.
+
+Do not retry `WS_EX_COMPOSITED` or unconditional `UpdateWindow()` removal. The
+first candidate should target the observed stale strip directly (the task view is
+resized but its right edge/columns are not painted before the next mouse move),
+for example a per-move batched redraw limited to the splitter, active task view and
+its children.
 
 ## Test notes
 

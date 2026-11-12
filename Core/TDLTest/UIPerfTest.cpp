@@ -15,8 +15,14 @@
 #include "..\shared\Misc.h"
 
 #include <commctrl.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #include <algorithm>
+#include <atomic>
+#include <thread>
 #include <vector>
+#include <utility>
+#include <atlimage.h>
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -38,6 +44,7 @@ namespace
 
 	const UINT TDL_CMD_TOGGLETREEANDLIST = 34238;	// ID_VIEW_TOGGLETREEANDLIST
 	const UINT TDL_CMD_ACTIVATELISTVIEW = 34645;	// ID_ACTIVATEVIEW_LISTVIEW
+	const UINT TDL_CMD_MAXIMIZETASKLIST = 32836;	// ID_VIEW_MAXTASKLIST
 
 	const int DEFAULT_STEPS				= 20;
 	const int DEFAULT_STEP_DELAY_MS		= 25;
@@ -100,20 +107,14 @@ namespace
 		return (std::max)(nR, (std::max)(nG, nB));
 	}
 
-	BOOL CaptureClient(HWND hWnd, CAPTURE& capture)
+	BOOL CaptureScreenRect(const CRect& rcScreen, CAPTURE& capture)
 	{
-		CRect rcClient;
-		::GetClientRect(hWnd, &rcClient);
-
-		if (rcClient.IsRectEmpty())
+		if (rcScreen.IsRectEmpty())
 			return FALSE;
 
-		CPoint ptOrigin(0, 0);
-		::ClientToScreen(hWnd, &ptOrigin);
-
-		capture.cx = rcClient.Width();
-		capture.cy = rcClient.Height();
-		capture.rcScreen = CRect(ptOrigin, rcClient.Size());
+		capture.cx = rcScreen.Width();
+		capture.cy = rcScreen.Height();
+		capture.rcScreen = rcScreen;
 		capture.aPixels.assign(capture.cx * capture.cy, 0);
 
 		HDC hScreenDC = ::GetDC(NULL);
@@ -137,7 +138,7 @@ namespace
 
 			::GdiFlush();
 			bRes = ::BitBlt(hMemDC, 0, 0, capture.cx, capture.cy,
-							hScreenDC, ptOrigin.x, ptOrigin.y, SRCCOPY);
+							hScreenDC, rcScreen.left, rcScreen.top, SRCCOPY);
 			::GdiFlush();
 
 			if (bRes)
@@ -156,6 +157,17 @@ namespace
 		::ReleaseDC(NULL, hScreenDC);
 
 		return bRes;
+	}
+
+	BOOL CaptureClient(HWND hWnd, CAPTURE& capture)
+	{
+		CRect rcClient;
+		::GetClientRect(hWnd, &rcClient);
+
+		CPoint ptOrigin(0, 0);
+		::ClientToScreen(hWnd, &ptOrigin);
+
+		return CaptureScreenRect(CRect(ptOrigin, rcClient.Size()), capture);
 	}
 
 	FRAMEDIFF CompareCaptures(const CAPTURE& c1, const CAPTURE& c2, int nChannelTol)
@@ -226,6 +238,203 @@ namespace
 		return TRUE;
 	}
 
+	BOOL SaveCapturePng(const CAPTURE& capture, LPCTSTR szPath)
+	{
+		if (capture.aPixels.empty())
+			return FALSE;
+
+		CImage image;
+
+		if (FAILED(image.Create(capture.cx, capture.cy, 32)))
+			return FALSE;
+
+		BYTE* pDst = (BYTE*)image.GetBits();
+		const int nPitch = image.GetPitch();
+		const int nStep = abs(nPitch);
+		const int nStart = ((nPitch < 0) ? (capture.cy - 1) : 0);
+		const int nDir = ((nPitch < 0) ? -1 : 1);
+
+		for (int y = 0; y < capture.cy; y++)
+		{
+			DWORD* pRow = (DWORD*)(pDst + (nStart + (y * nDir)) * nStep);
+			const DWORD* pSrc = &capture.aPixels[y * capture.cx];
+
+			for (int x = 0; x < capture.cx; x++)
+				pRow[x] = (pSrc[x] | 0xFF000000); // BitBlt leaves alpha at zero
+		}
+
+		return SUCCEEDED(image.Save(szPath));
+	}
+
+	struct CAPTURERECORDER
+	{
+		CAPTURERECORDER() : nIntervalMs(10), nMaxFrames(400), bStop(false), nFrames(0) {}
+
+		struct FRAME
+		{
+			DWORD dwTick;
+			std::vector<BYTE> data;
+		};
+
+		CRect rcCapture;
+		CString sRunFolder;
+		int nIntervalMs;
+		int nMaxFrames;
+		std::atomic<bool> bStop;
+		std::atomic<int> nFrames;
+		std::vector<FRAME> aFrames;
+	};
+
+	int GetEncoderClsid(const WCHAR* szMimeType, CLSID* pClsid)
+	{
+		UINT nNum = 0, nSize = 0;
+
+		if ((Gdiplus::GetImageEncodersSize(&nNum, &nSize) != Gdiplus::Ok) || (nSize == 0))
+			return -1;
+
+		std::vector<BYTE> buffer(nSize);
+		Gdiplus::ImageCodecInfo* pInfo = (Gdiplus::ImageCodecInfo*)buffer.data();
+
+		if (Gdiplus::GetImageEncoders(nNum, nSize, pInfo) != Gdiplus::Ok)
+			return -1;
+
+		for (UINT i = 0; i < nNum; i++)
+		{
+			if (wcscmp(pInfo[i].MimeType, szMimeType) == 0)
+			{
+				*pClsid = pInfo[i].Clsid;
+				return (int)i;
+			}
+		}
+
+		return -1;
+	}
+
+	BOOL EncodeJpegInMemory(const CAPTURE& capture, std::vector<BYTE>& jpeg)
+	{
+		if (capture.aPixels.empty())
+			return FALSE;
+
+		CLSID clsid;
+
+		if (GetEncoderClsid(L"image/jpeg", &clsid) < 0)
+			return FALSE;
+
+		// PixelFormat32bppRGB ignores the alpha channel left at zero by BitBlt
+		Gdiplus::Bitmap bitmap(capture.cx, capture.cy, (capture.cx * 4),
+							   PixelFormat32bppRGB, (BYTE*)capture.aPixels.data());
+
+		if (bitmap.GetLastStatus() != Gdiplus::Ok)
+			return FALSE;
+
+		IStream* pStream = NULL;
+
+		if (FAILED(::CreateStreamOnHGlobal(NULL, TRUE, &pStream)) || !pStream)
+			return FALSE;
+
+		Gdiplus::EncoderParameters params;
+		ULONG nQuality = 80;
+
+		params.Count = 1;
+		params.Parameter[0].Guid = Gdiplus::EncoderQuality;
+		params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+		params.Parameter[0].NumberOfValues = 1;
+		params.Parameter[0].Value = &nQuality;
+
+		BOOL bOK = (bitmap.Save(pStream, &clsid, &params) == Gdiplus::Ok);
+
+		if (bOK)
+		{
+			STATSTG stat = { 0 };
+			HGLOBAL hGlobal = NULL;
+
+			if ((pStream->Stat(&stat, STATFLAG_NONAME) == S_OK) &&
+				SUCCEEDED(::GetHGlobalFromStream(pStream, &hGlobal)) && hGlobal)
+			{
+				const BYTE* pData = (const BYTE*)::GlobalLock(hGlobal);
+
+				if (pData)
+				{
+					jpeg.assign(pData, pData + stat.cbSize.LowPart);
+					::GlobalUnlock(hGlobal);
+				}
+				else
+				{
+					bOK = FALSE;
+				}
+			}
+			else
+			{
+				bOK = FALSE;
+			}
+		}
+
+		pStream->Release();
+
+		return bOK;
+	}
+
+	BOOL WriteRecordedFrames(const CAPTURERECORDER& recorder)
+	{
+		for (size_t i = 0; i < recorder.aFrames.size(); i++)
+		{
+			const CAPTURERECORDER::FRAME& frame = recorder.aFrames[i];
+			CString sFile;
+
+			sFile.Format(_T("%s\\frame_%05u_%010lu.jpg"),
+						 (LPCTSTR)recorder.sRunFolder, (UINT)i, frame.dwTick);
+
+			CFile file;
+
+			if (!file.Open(sFile, CFile::modeCreate | CFile::modeWrite))
+				return FALSE;
+
+			try
+			{
+				file.Write(frame.data.data(), (UINT)frame.data.size());
+			}
+			catch (CFileException* e)
+			{
+				e->Delete();
+				return FALSE;
+			}
+		}
+
+		return TRUE;
+	}
+
+	UINT AFX_CDECL CaptureThreadProc(LPVOID pParam)
+	{
+		CAPTURERECORDER* pRecorder = (CAPTURERECORDER*)pParam;
+
+		HRESULT hrCoInit = ::CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
+		while (!pRecorder->bStop.load() &&
+			   ((int)pRecorder->aFrames.size() < pRecorder->nMaxFrames))
+		{
+			CAPTURE capture;
+
+			if (CaptureScreenRect(pRecorder->rcCapture, capture))
+			{
+				CAPTURERECORDER::FRAME frame;
+
+				if (EncodeJpegInMemory(capture, frame.data))
+				{
+					frame.dwTick = ::GetTickCount();
+					pRecorder->aFrames.push_back(std::move(frame));
+					pRecorder->nFrames++;
+				}
+			}
+
+			::Sleep(pRecorder->nIntervalMs);
+		}
+
+		if (SUCCEEDED(hrCoInit))
+			::CoUninitialize();
+
+		return 0;
+	}
+
 	void ForceRepaint(HWND hWnd)
 	{
 		::RedrawWindow(hWnd, NULL, NULL,
@@ -263,6 +472,19 @@ namespace
 		input.mi.dwFlags = MOUSEEVENTF_WHEEL;
 		input.mi.mouseData = (DWORD)nDelta;
 
+		::SendInput(1, &input, sizeof(INPUT));
+	}
+
+	void SendKeyPress(WORD wVK)
+	{
+		INPUT input = { 0 };
+		input.type = INPUT_KEYBOARD;
+		input.ki.wVk = wVK;
+
+		::SendInput(1, &input, sizeof(INPUT));
+		::Sleep(10);
+
+		input.ki.dwFlags = KEYEVENTF_KEYUP;
 		::SendInput(1, &input, sizeof(INPUT));
 	}
 
@@ -413,6 +635,50 @@ namespace
 		}
 
 		return NULL;
+	}
+
+	BOOL GetCaptureScreenRect(HWND hContainer, HWND hList1, HWND hList2, HWND hAttribs,
+							  LPCTSTR szMode, CRect& rcScreen)
+	{
+		rcScreen.SetRectEmpty();
+
+		if (lstrcmpi(szMode, _T("task")) == 0)
+		{
+			CRect rc1, rc2;
+			::GetWindowRect(hList1, &rc1);
+			::GetWindowRect(hList2, &rc2);
+
+			rcScreen = rc1;
+			rcScreen.UnionRect(rcScreen, rc2);
+		}
+		else if (lstrcmpi(szMode, _T("taskattr")) == 0)
+		{
+			CRect rc1, rc2;
+			::GetWindowRect(hList1, &rc1);
+			::GetWindowRect(hList2, &rc2);
+
+			rcScreen = rc1;
+			rcScreen.UnionRect(rcScreen, rc2);
+
+			if (hAttribs && ::IsWindowVisible(hAttribs))
+			{
+				CRect rcAttribs;
+				::GetWindowRect(hAttribs, &rcAttribs);
+				rcScreen.UnionRect(rcScreen, rcAttribs);
+			}
+		}
+		else // full
+		{
+			CRect rcClient;
+			::GetClientRect(hContainer, &rcClient);
+
+			CPoint ptOrigin(0, 0);
+			::ClientToScreen(hContainer, &ptOrigin);
+
+			rcScreen = CRect(ptOrigin, rcClient.Size());
+		}
+
+		return !rcScreen.IsRectEmpty();
 	}
 
 	// ---------------------------------------------------------------
@@ -693,6 +959,15 @@ namespace
 
 	// ---------------------------------------------------------------
 
+	CString GetFixtureCacheFolder()
+	{
+		CString sFolder = FileMisc::PathConcat(FileMisc::GetTempFolder(), _T("TDLPerf"));
+		sFolder = FileMisc::PathConcat((LPCTSTR)sFolder, _T("Cache"));
+		FileMisc::CreateFolder(sFolder);
+
+		return sFolder;
+	}
+
 	CString MakeRunFolder(LPCTSTR szScenario)
 	{
 		CString sFolder = FileMisc::PathConcat(FileMisc::GetTempFolder(), _T("TDLPerf"));
@@ -767,13 +1042,23 @@ namespace
 			::AttachThreadInput(dwThisThread, dwForeThread, FALSE);
 	}
 
-	BOOL SetDefaultWindowSize(HWND hMain)
+	BOOL SetDefaultWindowSize(HWND hMain, int nWidth, int nHeight)
 	{
 		if (!hMain)
 			return FALSE;
 
+		RECT rcWork = { 0 };
+		::SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0);
+
+		int nMaxW = ((std::max)(320, (int)(rcWork.right - rcWork.left) - 20));
+		int nMaxH = ((std::max)(240, (int)(rcWork.bottom - rcWork.top) - 20));
+
+		int nW = (std::min)(nWidth, nMaxW);
+		int nH = (std::min)(nHeight, nMaxH);
+
 		::ShowWindow(hMain, SW_RESTORE);
-		::SetWindowPos(hMain, HWND_TOP, 80, 80, 1400, 900, SWP_SHOWWINDOW);
+		::SetWindowPos(hMain, HWND_TOP, (rcWork.left + 10), (rcWork.top + 10),
+					   nW, nH, SWP_SHOWWINDOW);
 		ForceForegroundWindow(hMain);
 		::Sleep(500);
 
@@ -789,7 +1074,18 @@ CUIPerfTest::PERFOPTIONS::PERFOPTIONS()
 	:
 	nSteps(DEFAULT_STEPS),
 	nStepDelayMs(DEFAULT_STEP_DELAY_MS),
-	nPixelTolerance(DEFAULT_PIXEL_TOLERANCE)
+	nPixelTolerance(DEFAULT_PIXEL_TOLERANCE),
+	nNotches(1),
+	nMaxFrames(400),
+	nRecordIntervalMs(10),
+	nWidth(1400),
+	nHeight(900),
+	sCapture(_T("full")),
+	bMaximize(FALSE),
+	bScrollKeys(FALSE),
+	bSaveFrames(FALSE),
+	bRecord(FALSE),
+	bRegenerate(FALSE)
 {
 }
 
@@ -829,12 +1125,19 @@ TESTRESULT CUIPerfTest::Run()
 	// Fixture-only mode: no GUI launch, useful for diagnosing setup problems
 	if (m_utils.HasCommandlineFlag(_T("uifix")))
 	{
-		TestFixtures();
+		TestFixtures(opt);
 		return GetTotals();
 	}
 
-	TestSplitterDrag(opt);
-	TestListScrollSync(opt);
+	const bool bScrollOnly = m_utils.HasCommandlineFlag(_T("uiscroll"));
+	const bool bSplitterOnly = m_utils.HasCommandlineFlag(_T("uisplitter"));
+	const bool bRunAll = (!bScrollOnly && !bSplitterOnly);
+
+	if (bSplitterOnly || bRunAll)
+		TestSplitterDrag(opt);
+
+	if (bScrollOnly || bRunAll)
+		TestListScrollSync(opt);
 
 	return GetTotals();
 }
@@ -868,6 +1171,52 @@ BOOL CUIPerfTest::GetOptions(PERFOPTIONS& opt) const
 	if (!sValue.IsEmpty())
 		opt.nPixelTolerance = (std::max)(0, _ttoi(sValue));
 
+	sValue = m_utils.GetCommandlineOption(_T("notches"));
+
+	if (!sValue.IsEmpty())
+		opt.nNotches = (std::max)(1, _ttoi(sValue));
+
+	sValue = m_utils.GetCommandlineOption(_T("maxframes"));
+
+	if (!sValue.IsEmpty())
+		opt.nMaxFrames = (std::max)(1, _ttoi(sValue));
+
+	sValue = m_utils.GetCommandlineOption(_T("recms"));
+
+	if (!sValue.IsEmpty())
+		opt.nRecordIntervalMs = (std::max)(0, _ttoi(sValue));
+
+	sValue = m_utils.GetCommandlineOption(_T("capture"));
+
+	if (!sValue.IsEmpty())
+		opt.sCapture = sValue;
+
+	opt.bMaximize = m_utils.HasCommandlineFlag(_T("maximize"));
+
+	sValue = m_utils.GetCommandlineOption(_T("size"));
+
+	if (!sValue.IsEmpty())
+	{
+		int nSep = sValue.FindOneOf(_T("xX*,"));
+
+		if (nSep > 0)
+		{
+			int nWidth = _ttoi(sValue.Left(nSep));
+			int nHeight = _ttoi(sValue.Mid(nSep + 1));
+
+			if (nWidth > 0)
+				opt.nWidth = nWidth;
+
+			if (nHeight > 0)
+				opt.nHeight = nHeight;
+		}
+	}
+
+	opt.bScrollKeys = m_utils.HasCommandlineFlag(_T("keys"));
+	opt.bSaveFrames = m_utils.HasCommandlineFlag(_T("frames"));
+	opt.bRecord = m_utils.HasCommandlineFlag(_T("record"));
+	opt.bRegenerate = m_utils.HasCommandlineFlag(_T("regenerate"));
+
 	return (!opt.sExePath.IsEmpty() && FileMisc::FileExists(opt.sExePath));
 }
 
@@ -877,6 +1226,32 @@ BOOL CUIPerfTest::GetOptions(PERFOPTIONS& opt) const
 
 namespace
 {
+	const LPCTSTR PERF_TITLES[] =
+	{
+		_T("Spring MVC"), _T("Spring Data"), _T("Spring & Angular"),
+		_T("Interessantes"), _T("Quarterly review"), _T("Zebra migration"),
+		_T("Kubernetes rollout"), _T("Fix login timeout"), _T("Data synchronisation"),
+		_T("Budget approval"), _T("Customer onboarding"), _T("Release checklist"),
+		_T("Security audit"), _T("Performance tuning"), _T("API documentation"),
+		_T("Database migration"), _T("UI regression test"), _T("Support escalation"),
+		_T("Accessibility review"), _T("Backup verification"),
+	};
+
+	const COLORREF PERF_COLORS[] =
+	{
+		RGB(0, 0, 128), RGB(128, 0, 0), RGB(0, 100, 0), RGB(128, 0, 128),
+		RGB(0, 100, 120), RGB(150, 90, 0), RGB(80, 80, 80), RGB(0, 70, 140),
+	};
+
+	CString GetPerfTitle(int nIndex)
+	{
+		CString sTitle;
+		sTitle.Format(_T("%s #%d"),
+					  PERF_TITLES[nIndex % _countof(PERF_TITLES)], nIndex);
+
+		return sTitle;
+	}
+
 	void AddGeneratedTask(CTaskFile& tasks, HTASKITEM hTask, int nIndex)
 	{
 		tasks.AddTaskAllocatedTo(hTask, _T("Perf Person"));
@@ -884,6 +1259,8 @@ namespace
 		tasks.AddTaskTag(hTask, _T("PerfTag"));
 		tasks.SetTaskStatus(hTask, ((nIndex % 3) ? _T("In Progress") : _T("Not Started")));
 		tasks.SetTaskPriority(hTask, ((nIndex % 10) + 1));
+		tasks.SetTaskPercentDone(hTask, (unsigned char)((nIndex * 7) % 101));
+		tasks.SetTaskColor(hTask, PERF_COLORS[nIndex % _countof(PERF_COLORS)]);
 	}
 
 	void GenerateTreeTasks(CTaskFile& tasks, HTASKITEM hParent, DWORD dwParentID,
@@ -892,8 +1269,7 @@ namespace
 		for (int i = 0; i < nChildren; i++)
 		{
 			DWORD dwID = dwNextID++;
-			CString sTitle;
-			sTitle.Format(_T("Task %u (depth %d)"), dwID, nDepth);
+			CString sTitle = GetPerfTitle((int)dwID);
 
 			HTASKITEM hTask = tasks.NewTask(sTitle, hParent, dwID, dwParentID, FALSE);
 			AddGeneratedTask(tasks, hTask, (int)dwID);
@@ -906,13 +1282,13 @@ namespace
 
 BOOL CUIPerfTest::GenerateTreeFixture(LPCTSTR szFolderPath, CString& sTasklistPath) const
 {
-	sTasklistPath = FileMisc::PathConcat(szFolderPath, _T("PerfTree.tdl"));
+	sTasklistPath = FileMisc::PathConcat(szFolderPath, _T("PerfTree_v3.tdl"));
 
 	CTaskFile tasks;
 	tasks.SetProjectName(_T("TDL Perf Tree"));
 
 	DWORD dwNextID = 1;
-	GenerateTreeTasks(tasks, NULL, 0, dwNextID, 4, 10);
+	GenerateTreeTasks(tasks, NULL, 0, dwNextID, 3, 10);
 
 	tasks.SetNextUniqueID(dwNextID);
 
@@ -926,7 +1302,7 @@ BOOL CUIPerfTest::GenerateTreeFixture(LPCTSTR szFolderPath, CString& sTasklistPa
 
 BOOL CUIPerfTest::GenerateListFixture(LPCTSTR szFolderPath, CString& sTasklistPath) const
 {
-	sTasklistPath = FileMisc::PathConcat(szFolderPath, _T("PerfList.tdl"));
+	sTasklistPath = FileMisc::PathConcat(szFolderPath, _T("PerfList_v3.tdl"));
 
 	CTaskFile tasks;
 	tasks.SetProjectName(_T("TDL Perf List"));
@@ -959,6 +1335,46 @@ BOOL CUIPerfTest::CopyTasklistFixture(LPCTSTR szSrcPath, LPCTSTR szFolderPath, C
 	return ::CopyFile(szSrcPath, sTasklistPath, FALSE);
 }
 
+BOOL CUIPerfTest::EnsureCachedFixture(BOOL bTree, BOOL bRegenerate, CString& sCachePath) const
+{
+	const CString sCacheFolder = GetFixtureCacheFolder();
+	LPCTSTR szName = (bTree ? _T("PerfTree_v3.tdl") : _T("PerfList_v3.tdl"));
+
+	sCachePath = FileMisc::PathConcat((LPCTSTR)sCacheFolder, szName);
+
+	if (!bRegenerate && FileMisc::FileExists(sCachePath) &&
+		(FileMisc::GetFileSize(sCachePath) > 0))
+	{
+		_tprintf(_T("  fixture: %s (cached)\n"), (LPCTSTR)sCachePath);
+		return TRUE;
+	}
+
+	BOOL bGenerated = (bTree ? GenerateTreeFixture(sCacheFolder, sCachePath)
+							 : GenerateListFixture(sCacheFolder, sCachePath));
+
+	_tprintf(_T("  fixture: %s (%s)\n"), (LPCTSTR)sCachePath,
+			 (bGenerated ? _T("generated") : _T("FAILED")));
+
+	return bGenerated;
+}
+
+BOOL CUIPerfTest::PrepareFixture(BOOL bTree, const PERFOPTIONS& opt, LPCTSTR szRunFolder,
+								 CString& sTasklistPath) const
+{
+	if (!opt.sTasklistPath.IsEmpty())
+		return CopyTasklistFixture(opt.sTasklistPath, szRunFolder, sTasklistPath);
+
+	CString sCachePath;
+
+	if (!EnsureCachedFixture(bTree, opt.bRegenerate, sCachePath))
+		return FALSE;
+
+	sTasklistPath = FileMisc::PathConcat((LPCTSTR)szRunFolder,
+										 (bTree ? _T("PerfTree_v3.tdl") : _T("PerfList_v3.tdl")));
+
+	return ::CopyFile(sCachePath, sTasklistPath, FALSE);
+}
+
 BOOL CUIPerfTest::WriteIniFile(LPCTSTR szIniPath) const
 {
 	CStdioFile file;
@@ -988,9 +1404,7 @@ void CUIPerfTest::TestSplitterDrag(const PERFOPTIONS& opt)
 	const CString sRunFolder = MakeRunFolder(_T("SplitterDrag"));
 	CString sTdlPath, sIniPath = FileMisc::PathConcat(sRunFolder, _T("Perf.ini"));
 
-	BOOL bHasFixture = opt.sTasklistPath.IsEmpty()
-						? GenerateTreeFixture(sRunFolder, sTdlPath)
-						: CopyTasklistFixture(opt.sTasklistPath, sRunFolder, sTdlPath);
+	BOOL bHasFixture = PrepareFixture(TRUE, opt, sRunFolder, sTdlPath);
 
 	ExpectTrue(bHasFixture);
 
@@ -1009,7 +1423,7 @@ void CUIPerfTest::TestSplitterDrag(const PERFOPTIONS& opt)
 	if (!ExpectTrue(app.WaitForMainWnd(hMain, 20000)))
 		return;
 
-	if (!ExpectTrue(SetDefaultWindowSize(hMain)))
+	if (!ExpectTrue(SetDefaultWindowSize(hMain, opt.nWidth, opt.nHeight)))
 	{
 		_tprintf(_T("  SplitterDrag: could not bring ToDoList to the foreground\n"));
 		return;
@@ -1041,6 +1455,13 @@ void CUIPerfTest::TestSplitterDrag(const PERFOPTIONS& opt)
 
 	CRect rcTaskBefore;
 	::GetWindowRect(hTaskCtrl, &rcTaskBefore);
+
+	if (m_utils.HasCommandlineFlag(_T("uihold")))
+	{
+		_tprintf(_T("  SplitterDrag: manual mode, ToDoList left open. Close it to finish.\n"));
+		::WaitForSingleObject(app.GetProcessHandle(), (30 * 60 * 1000));
+		return;
+	}
 
 	if (m_utils.HasCommandlineFlag(_T("nodrag")))
 	{
@@ -1088,19 +1509,29 @@ void CUIPerfTest::TestSplitterDrag(const PERFOPTIONS& opt)
 // Fixture-only diagnostics
 //////////////////////////////////////////////////////////////////////
 
-void CUIPerfTest::TestFixtures()
+void CUIPerfTest::TestFixtures(const PERFOPTIONS& opt)
 {
 	CTDCScopedTest test(*this, _T("UIPerf::Fixtures"));
 
 	const CString sRunFolder = MakeRunFolder(_T("Fixtures"));
+	const CString sIniPath = FileMisc::PathConcat((LPCTSTR)sRunFolder, _T("Perf.ini"));
 	CString sTreePath, sListPath;
 
-	BOOL bTree = GenerateTreeFixture(sRunFolder, sTreePath);
-	BOOL bList = GenerateListFixture(sRunFolder, sListPath);
+	BOOL bTree = PrepareFixture(TRUE, opt, sRunFolder, sTreePath);
+	BOOL bList = PrepareFixture(FALSE, opt, sRunFolder, sListPath);
 
 	_tprintf(_T("  Fixtures folder: %s\n"), (LPCTSTR)sRunFolder);
 	_tprintf(_T("  Tree: %s (%s)\n"), (LPCTSTR)sTreePath, (bTree ? _T("OK") : _T("FAILED")));
 	_tprintf(_T("  List: %s (%s)\n"), (LPCTSTR)sListPath, (bList ? _T("OK") : _T("FAILED")));
+
+	ExpectTrue(WriteIniFile(sIniPath));
+
+	// Manual launch:
+	// "<exe>" -f "<fixture>" -i "<ini>"
+	_tprintf(_T("  Manual tree: \"%s\" -f \"%s\" -i \"%s\"\n"),
+			 (LPCTSTR)opt.sExePath, (LPCTSTR)sTreePath, (LPCTSTR)sIniPath);
+	_tprintf(_T("  Manual list: \"%s\" -f \"%s\" -i \"%s\"\n"),
+			 (LPCTSTR)opt.sExePath, (LPCTSTR)sListPath, (LPCTSTR)sIniPath);
 
 	ExpectTrue(bTree);
 	ExpectTrue(bList);
@@ -1119,9 +1550,7 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 	const CString sRunFolder = MakeRunFolder(_T("ListScroll"));
 	CString sTdlPath, sIniPath = FileMisc::PathConcat(sRunFolder, _T("Perf.ini"));
 
-	BOOL bHasFixture = opt.sTasklistPath.IsEmpty()
-						? GenerateListFixture(sRunFolder, sTdlPath)
-						: CopyTasklistFixture(opt.sTasklistPath, sRunFolder, sTdlPath);
+	BOOL bHasFixture = PrepareFixture(FALSE, opt, sRunFolder, sTdlPath);
 
 	ExpectTrue(bHasFixture);
 
@@ -1140,7 +1569,7 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 	if (!ExpectTrue(app.WaitForMainWnd(hMain, 20000)))
 		return;
 
-	if (!ExpectTrue(SetDefaultWindowSize(hMain)))
+	if (!ExpectTrue(SetDefaultWindowSize(hMain, opt.nWidth, opt.nHeight)))
 	{
 		_tprintf(_T("  ListScroll: could not bring ToDoList to the foreground\n"));
 		return;
@@ -1189,6 +1618,16 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 	if (!hListHost || !::IsWindowVisible(hListHost))
 		return;
 
+	if (opt.bMaximize)
+	{
+		// Maximize the tasklist to hide comments/attributes and the filter panes
+		::SendMessage(hMain, WM_COMMAND, TDL_CMD_MAXIMIZETASKLIST, 0);
+		::Sleep(600);
+
+		hListHost = FindDescendantById(hContainer, TDL_IDC_TASKLISTCTRL);
+		ExpectTrue(hListHost && ::IsWindowVisible(hListHost));
+	}
+
 	vector<HWND> aLists;
 	CollectDescendantsByClass(hListHost, _T("SysListView32"), aLists, 4);
 
@@ -1200,13 +1639,6 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 		return;
 	}
 
-	if (m_utils.HasCommandlineFlag(_T("nodrag")))
-	{
-		_tprintf(_T("  ListScroll: found %u list windows\n"), (unsigned)aLists.size());
-		return;
-	}
-
-	// Use the wider list (the columns list) as the scroll target
 	HWND hList1 = aLists[0];
 	HWND hList2 = aLists[1];
 
@@ -1219,16 +1651,161 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 	::GetWindowRect(hScrollList, &rcScroll);
 	CPoint ptCenter = rcScroll.CenterPoint();
 
+	HWND hAttribs = FindDescendantById(hContainer, TDL_IDC_ATTRIBUTELIST);
+	CRect rcCapture;
+
+	if (!GetCaptureScreenRect(hContainer, hList1, hList2, hAttribs, opt.sCapture, rcCapture))
+		rcCapture = CRect(0, 0, 0, 0);
+
+	_tprintf(_T("  ListScroll: capture=%s rect=(%d,%d,%d,%d)\n"),
+			 (LPCTSTR)opt.sCapture, rcCapture.left, rcCapture.top,
+			 rcCapture.right, rcCapture.bottom);
+
+	if (m_utils.HasCommandlineFlag(_T("uihold")))
+	{
+		CAPTURERECORDER recorder;
+		CWinThread* pRecordThread = NULL;
+
+		if (opt.bRecord)
+		{
+			recorder.rcCapture = rcCapture;
+			recorder.sRunFolder = sRunFolder;
+			recorder.nMaxFrames = opt.nMaxFrames;
+			recorder.nIntervalMs = opt.nRecordIntervalMs;
+
+			pRecordThread = ::AfxBeginThread(CaptureThreadProc, &recorder,
+											 THREAD_PRIORITY_BELOW_NORMAL, 0, CREATE_SUSPENDED);
+
+			if (pRecordThread)
+			{
+				pRecordThread->m_bAutoDelete = FALSE;
+				pRecordThread->ResumeThread();
+			}
+
+			_tprintf(_T("  ListScroll: manual mode + JPEG recording. ")
+					 _T("Press Page Up/Page Down, then close ToDoList to finish.\n"));
+		}
+		else
+		{
+			_tprintf(_T("  ListScroll: manual mode, ToDoList left open in List View. Close it to finish.\n"));
+		}
+
+		::WaitForSingleObject(app.GetProcessHandle(), (30 * 60 * 1000));
+
+		if (pRecordThread)
+		{
+			recorder.bStop = true;
+			::WaitForSingleObject(pRecordThread->m_hThread, 5000);
+			delete pRecordThread;
+
+			WriteRecordedFrames(recorder);
+
+			_tprintf(_T("  ListScroll: recorded %d frames (JPEG) under %s\n"),
+					 (int)recorder.aFrames.size(), (LPCTSTR)sRunFolder);
+		}
+
+		return;
+	}
+
+	if (m_utils.HasCommandlineFlag(_T("nodrag")))
+	{
+		_tprintf(_T("  ListScroll: found %u list windows\n"), (unsigned)aLists.size());
+		return;
+	}
+
 	SCROLLSTATS stats;
 
-	const int nScrollSteps = (std::max)(5, opt.nSteps / 2);
+	const int nScrollSteps = (std::max)(1, opt.nSteps / 2);
+
+	if (opt.bScrollKeys)
+	{
+		// Give the list focus so Page Down is delivered like a real key press
+		SendMouseAbsolute(MOUSEEVENTF_MOVE, ptCenter);
+		::Sleep(30);
+		SendMouseAbsolute(MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN, ptCenter);
+		::Sleep(30);
+		SendMouseAbsolute(MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP, ptCenter);
+		::Sleep(150);
+	}
+
+	// Continuous frame recorder: it runs independently of the scroll cadence so
+	// the input rate is not limited by the capture cost.
+	CAPTURERECORDER recorder;
+	CWinThread* pRecordThread = NULL;
+
+	if (opt.bRecord)
+	{
+		recorder.rcCapture = rcCapture;
+		recorder.sRunFolder = sRunFolder;
+		recorder.nMaxFrames = opt.nMaxFrames;
+			recorder.nIntervalMs = opt.nRecordIntervalMs;
+
+		// Must use an MFC thread so CString/CImage have MFC module state
+		pRecordThread = ::AfxBeginThread(CaptureThreadProc, &recorder,
+										 THREAD_PRIORITY_BELOW_NORMAL, 0, CREATE_SUSPENDED);
+
+		if (pRecordThread)
+		{
+			pRecordThread->m_bAutoDelete = FALSE;
+			pRecordThread->ResumeThread();
+		}
+	}
 
 	for (int i = 0; i < nScrollSteps; i++)
 	{
-		SendMouseWheel(ptCenter, -WHEEL_DELTA);
-		::Sleep(120);
+		if (opt.bScrollKeys)
+		{
+			for (int n = 0; n < opt.nNotches; n++)
+			{
+				SendKeyPress(VK_NEXT); // Page Down
+
+				if ((n + 1) < opt.nNotches)
+					::Sleep(5);
+			}
+		}
+		else
+		{
+			for (int n = 0; n < opt.nNotches; n++)
+			{
+				SendMouseWheel(ptCenter, -WHEEL_DELTA);
+
+				if ((n + 1) < opt.nNotches)
+					::Sleep(5);
+			}
+		}
+
+		// A clean-reference comparison needs the scroll input to have settled,
+		// otherwise the two captures can be at different scroll offsets.
+		if (!opt.bRecord)
+			::Sleep((std::max)(opt.nStepDelayMs, 100));
 
 		stats.nSteps++;
+
+		if (opt.bRecord)
+		{
+			// Query the top indices first. A cross-process LVM_GETTOPINDEX is
+			// dispatched directly to the window proc and does not pump WM_PAINT,
+			// so it detects the lag; the burst capture below tries to catch the
+			// matching visible frame before the controls catch up.
+			int nTop1 = (int)::SendMessage(hList1, LVM_GETTOPINDEX, 0, 0);
+			int nTop2 = (int)::SendMessage(hList2, LVM_GETTOPINDEX, 0, 0);
+
+			if (i == 0)
+				stats.nFirstTopIndex = nTop1;
+
+			stats.nLastTopIndex = nTop1;
+
+			if (abs(nTop1 - nTop2) > 1)
+				stats.nSyncErrors++;
+
+			_tprintf(_T("  ListScroll[%d]: top1=%d top2=%d%s\n"),
+					 i, nTop1, nTop2, ((abs(nTop1 - nTop2) > 1) ? _T(" MISMATCH") : _T("")));
+
+			if (opt.nStepDelayMs > 0)
+				::Sleep(opt.nStepDelayMs);
+
+			continue;
+		}
 
 		int nTop1 = (int)::SendMessage(hList1, LVM_GETTOPINDEX, 0, 0);
 		int nTop2 = (int)::SendMessage(hList2, LVM_GETTOPINDEX, 0, 0);
@@ -1245,6 +1822,13 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 
 		if (!CaptureClient(hContainer, cOnScreen))
 			break;
+
+		if (opt.bSaveFrames)
+		{
+			CString sFrame;
+			sFrame.Format(_T("%s\\frame_%02d_onscreen.bmp"), (LPCTSTR)sRunFolder, i);
+			SaveCaptureBmp(cOnScreen, sFrame);
+		}
 
 		ForceRepaint(hContainer);
 		::Sleep(20);
@@ -1268,9 +1852,23 @@ void CUIPerfTest::TestListScrollSync(const PERFOPTIONS& opt)
 		stats.nMaxDiffPixels = (std::max)(stats.nMaxDiffPixels, diff.nPixels);
 	}
 
+	if (pRecordThread)
+	{
+		recorder.bStop = true;
+		::WaitForSingleObject(pRecordThread->m_hThread, 5000);
+		delete pRecordThread;
+		pRecordThread = NULL;
+
+		WriteRecordedFrames(recorder);
+	}
+
 	_tprintf(_T("  ListScroll: steps=%d top=%d->%d syncErrors=%d maxDiff=%d artifactSteps=%d\n"),
 			 stats.nSteps, stats.nFirstTopIndex, stats.nLastTopIndex,
 			 stats.nSyncErrors, stats.nMaxDiffPixels, stats.nArtifactSteps);
+
+	if (opt.bRecord)
+		_tprintf(_T("  ListScroll: recorded %d frames (JPEG) under %s\n"),
+				 (int)recorder.aFrames.size(), (LPCTSTR)sRunFolder);
 
 	ExpectTrue(stats.nLastTopIndex > stats.nFirstTopIndex); // actually scrolled
 	ExpectTrue(stats.nSyncErrors == 0);
