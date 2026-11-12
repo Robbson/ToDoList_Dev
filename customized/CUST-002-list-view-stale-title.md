@@ -92,18 +92,39 @@ the Win32 common control itself (`SysListView32` / `SysTreeView32`):
    control may also erase the band with `WM_ERASEBKGND`, which is the white
    patch where a grid/background used to be.
 
-The application cannot insert an "erase the band and paint empty grid first"
-step between steps 1 and 2 through the public control API. `WM_SETREDRAW`,
-`LockWindowUpdate` and `WS_EX_COMPOSITED` were tried and either do not suppress
-the internal `ScrollWindowEx` copy or break the custom-drawn columns. There is
-no `LVM_SCROLL`/`TVM_SCROLL` variant that moves the top row without copying
-pixels.
+This is not a sub-pixel smooth-scroll animation. For Page keys the copy is
+normally row-aligned (a multiple of the item height). Multiple copies of the
+same row appear when several scroll messages are processed before the exposed
+band is repainted: each message shifts a buffer that already contains copied
+rows, so the stale text is repeated.
 
-To get "blank/grid first, then new rows" the control must not scroll-copy at
-all. That requires owning the top-row index and painting the visible range
-yourself (a custom row-drawing control), or making the task view a single
-surface so the whole transition is one paint operation. That is why this is an
-architectural change rather than a small mitigation.
+Normal Windows applications do not show this. The copy is harmless when the
+control's **default paint path** repaints the invalidated band, which is what
+Explorer-like lists and ordinary ListView/TreeView apps use. ToDoList is
+different: the attribute columns are fully custom-drawn with `CDRF_SKIPDEFAULT`,
+and the title/tree rows are custom-drawn through prepaint/postpaint. Combining
+that custom drawing with `LVS_EX_DOUBLEBUFFER`/`TVS_EX_DOUBLEBUFFER` is what
+leaves parts of the copied band unpainted. It is a custom-draw/scroll
+invalidation defect, not a limitation that every Win32 application suffers
+from. Total Commander and similar tools either use their own list control or
+the default paint path; modern Explorer uses DirectUI rather than
+`SysListView32`.
+
+`WM_SETREDRAW`/`LockWindowUpdate` do not reliably prevent the internal
+`ScrollWindowEx` copy. There is also no `LVM_SCROLL`/`TVM_SCROLL` variant that
+moves the top row without copying pixels.
+
+So there are two valid layers for a fix:
+
+- Ensure the scrolled client is **fully repainted from the model** after the
+  scroll, or stop combining the custom-draw row painting with the control's
+  double buffering. This is the layer where normal applications differ. The
+  naive attempts at full repaint traded the copies for erase flicker, so the
+  exact invalidate/paint order still needs work.
+- Avoid the copy entirely by owning the top-row index and painting the visible
+  range yourself (a custom row-drawing control). A single *surface* only makes
+  the tree and columns paint together; it does not stop `SysTreeView32` from
+  copying rows inside that surface.
 
 ## Reproducing
 
@@ -201,18 +222,28 @@ contribute; removing `TVS_EX_DOUBLEBUFFER` alone cannot reproduce 6.9.6.
 
 ## Recommended fix direction
 
-The local tree fixes above were tried and reverted; they cannot reproduce the
-6.9.6 behaviour in the split-window architecture. Only larger changes remain:
+The local tree fixes above were tried and reverted. The next attempt should
+start at the layer that normal applications get right:
 
-1. **Return to a single-surface task view.** 6.9.6 used one `COrderedTreeCtrl`
-   with the columns painted in its non-client gutter. Reworking the modern Tree
-   and List views along those lines would make the rows and columns part of one
-   paint operation, as they were in 6.9.6.
+1. **Fix the custom-draw/scroll invalidation.** Make the custom-drawn rows
+   repaint the entire scrolled client from the model, or stop combining
+   `CDRF_SKIPDEFAULT`/postpaint row drawing with `LVS_EX_DOUBLEBUFFER`/
+   `TVS_EX_DOUBLEBUFFER`. Compare against a default-painted test list to
+   confirm the control itself behaves correctly. The earlier full-repaint
+   attempts must be revisited with the correct erase/invalidate order; they
+   traded copies for flicker.
 2. **Custom list/tree scrolling and rendering.** Keep the controls for input and
    selection, but drive the visible row range yourself and repaint the client in
    place instead of letting the control scroll. This is effectively an
-   owner-drawn control with its own top-row index.
-3. **Accept and contain.** If neither is acceptable, keep the current
+   owner-drawn control with its own top-row index and removes the internal
+   copied rows entirely.
+3. **Return to a single-surface task view.** 6.9.6 used one `COrderedTreeCtrl`
+   with the columns painted in its non-client gutter. Reworking the modern Tree
+   and List views along those lines makes the rows and columns part of one
+   paint operation and removes the cross-pane mismatch. On its own it does not
+   stop `SysTreeView32` from copying rows inside that surface; it would need to
+   be combined with option 1 or 2.
+4. **Accept and contain.** If none of the above is acceptable, keep the current
    double-buffered behaviour and document that a short copied-row frame can be
    seen at high frame rates or on slow repaints. This does not match 6.9.6.
 
