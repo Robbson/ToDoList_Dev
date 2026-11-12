@@ -8,6 +8,39 @@
 | Default | No behaviour change; no code retained |
 | Related | [index.md](index.md), [../PERFORMANCE.md](../PERFORMANCE.md), [CUST-004](CUST-004-ui-perf-harness.md) |
 
+## Why the Task Tree has its own path
+
+The Task Tree is not special because it is a tree. It is special because
+ToDoList needs a grid-like layout with a tree in the first column:
+
+- the task title/tree occupies the left column;
+- arbitrary attribute columns (dates, allocation, status, percentages, custom
+  attributes) follow to the right;
+- a movable splitter separates the two, and columns can be shown, hidden,
+  reordered, resized, sorted and auto-fitted;
+- the same task list can be shown flat (List View) or hierarchical (Task Tree).
+
+A plain `SysTreeView32` can only host a label tree, not arbitrary attribute
+columns. 6.9.6 solved this with `COrderedTreeCtrl` + `CNcGutter`: the columns
+were painted in the tree's non-client area. 7.x replaced that with a normal
+`CTreeCtrl` (`m_tcTasks`) plus a separate attribute `CListCtrl`
+(`m_lcColumns`), a header control and a splitter, kept in step by
+`CTreeListSyncer`.
+
+That architecture is the source of the scrolling complexity:
+
+- two native windows must scroll together, and each performs its own native
+  scroll copy;
+- the tree scrolls with `TVS_EX_DOUBLEBUFFER`/`ScrollWindowEx`, the columns list
+  with `LVS_EX_DOUBLEBUFFER`/`ListView_Scroll`;
+- ToDoList custom-draws the rows, so the control's default invalidation no
+  longer repaints the copied band correctly.
+
+So the "own path" is the price of the tree-plus-columns grid, not of the
+hierarchy itself. A single ListView with indentation or a full grid/tree control
+would avoid the two-window sync, but still has to solve the custom-draw/scroll
+copy described above.
+
 ## Summary
 
 - **List View:** copied rows occur for both keyboard Page keys and mouse
