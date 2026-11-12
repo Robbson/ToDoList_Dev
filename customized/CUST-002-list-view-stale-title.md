@@ -299,6 +299,54 @@ experiment, the symmetric title/attribute failures, the 7.2.RC9 result and the
 listed in "Attempted Task Tree fixes" without a new tree-scroll test; each was
 tried, built and rejected.
 
+### Implementation complexity estimate (custom scroll)
+
+Can we improve `SysListView32`/`SysTreeView32` itself? Not by subclassing or
+patching. The copy-on-scroll logic is internal to ComCtl32; there is no public
+hook between "compute the new scroll position" and `ScrollWindowEx`. Custom
+draw/owner draw only controls item painting, not the scroll copy. The workable
+interpretation of "our own improved control" is writing a **replacement**
+control that keeps the needed ToDoList behaviour but paints rows from the model
+and owns the top-row index. That is the custom-control option estimated below,
+not a small patch. It does not have to implement the whole Win32 API, only the
+subset ToDoList uses, but that subset is large because of selection, editing,
+drag/drop and the Task Tree.
+
+These are rough estimates for one experienced C++/MFC developer familiar with
+the codebase. They assume the existing task model, selection helpers, data
+layer and preferences stay in place.
+
+| Approach | Scope | Estimate | Risk |
+|---|---|---|---|
+| Coalesce scroll input + one repaint | Batch wheel/Page input, suppress intermediate scrolls, repaint once | 1–3 days | Low; reduces multiple copies but does not remove the copy |
+| Custom row-painting List View | Own top-row index, paint rows from the model, replace viewport scroll; keep header, selection, inline edit, drag/drop, tooltips, DPI | 6–10 weeks | High |
+| Custom List View + Task Tree | Add hierarchy, expand/collapse, gutter/columns, multi-select, drag/drop, tree keyboard semantics | 3–6 months total | Very high |
+| Third-party grid/tree control | Integrate a commercial/OSS grid or tree with retained-mode rendering | 3–8 weeks plus licensing and feature gaps | Medium–high |
+
+Why the estimate is large:
+
+- The controls are not self-contained. They interact with
+  `CToDoCtrlData`, `CTreeSelectionHelper`, `CTreeCtrlHelper`,
+  `CTreeListSyncer`, filters, sorting, grouping, inline label editing,
+  drag/drop, tooltips, theming, high DPI, RTL, image export and the
+  attribute columns.
+- A custom scroll cannot be added as a thin layer over `SysListView32`/
+  `SysTreeView32` because the controls always own their scroll position. The
+  visible range, hit-testing and selection have to be reimplemented together.
+- Both the List View (flat) and Task Tree (hierarchical) need parity; the Task
+  Tree adds the hierarchy, collapse/expand and tree-specific keyboard
+  navigation.
+- Regression risk is high: the views are central to the application and are
+  covered only partly by automated tests. A tree/List scroll scenario in
+  CUST-004 is a prerequisite for measuring progress.
+
+A reasonable sequence would be:
+
+1. Add a tree-scroll and ListView-wheel scenario to CUST-004 (1–2 days).
+2. Prototype a custom-scrolled flat List View with selection and keyboard only
+   (1–2 weeks), measure performance and visual result.
+3. Decide whether to continue to full parity or stop after the prototype.
+
 ### Acceptance criteria
 
 - The 60 fps sequence shows no frame in which a row is duplicated down the
