@@ -1,6 +1,7 @@
 # ToDoList Performance Analysis
 
-Status: **Phase 1 (static analysis) complete; runtime measurement pending**
+Status: **Phase 1 (static analysis) complete; UI paint and multi-document startup
+measured at runtime**
 Scope: `Core/ToDoList`, `Core/Shared`, `Core/3rdParty/SimpleSplitter.*`
 Date: 2026-11-12
 
@@ -39,6 +40,12 @@ artefact. That one is **not** caused by missing double buffering in the task vie
 is caused by "List View" actually being two independently painted list controls (title
 and attribute columns) that are scrolled one after the other, and by the title text
 being drawn in `CDDS_ITEMPOSTPAINT` from `nmcd.lItemlParam`. See P0-4.
+
+A fifth, unrelated cost explains why the application feels slow to start when several
+documents are restored: startup time grows by roughly 1.4–1.8 s per additional tasklist,
+and that growth is almost entirely independent of file size and of the existing
+"delayed loading" option. Delayed loading defers only the task data, not the file read
+or the per-tab control construction. See P0-5.
 
 ---
 
@@ -328,6 +335,150 @@ whole viewport. See
 for the attempted fixes and the next experiments (disable double buffering on the
 title list only; force a full redraw after the paired scroll; or use one list control
 for the title and columns).
+
+---
+
+### P0-5: Multi-document startup is dominated by per-tab control creation, not by
+file loading
+
+**Confirmed and measured.** This is independent of the splitter work and explains the
+"startup takes ages with my 10+ document config" report.
+
+#### Where the startup documents come from
+
+`CToDoListWnd::OnPostOnCreate` reads the last session from preferences and reopens it:
+
+- `Core/ToDoList/ToDoListWnd.cpp:2582-2595` – `[Settings] NumLastFiles`, then
+  `ReloadTasklists` (`CPreferencesGenPage.cpp:240`).
+- `Core/ToDoList/ToDoListWnd.cpp:2623-2665` – for each `LastFile<n>`, either
+  `OpenTaskList` (active tasklist) or `DelayOpenTaskList` (all others, if
+  `EnableDelayedLoading` is on, default TRUE in `PreferencesGenPage.cpp:236`, UI label
+  `ToDoList.rc:252-254`).
+- `Core/ToDoList/ToDoListWnd.cpp:2697-2699` – a single `Resize`/`UpdateWindow` after
+  the whole loop.
+
+A 10+ document configuration therefore comes either from the ini or from repeated `-f`
+switches. Only the first positional path on the command line is kept
+(`CEnCommandLineInfo::ParseParam`, `Core/Shared/EnCommandLineInfo.cpp:141-153`, used by
+`CTDCStartupOptions::SetCmdInfo`, `TDCStartupOptions.cpp:256-271`); further positional
+paths are ignored or absorbed as parameters of the preceding switch. The ini is the
+reliable way to reproduce a real 10+ document startup, which is what the reporter uses.
+
+#### Why "delayed loading" barely helps
+
+Delayed loading defers only the task model, not the file and not the window:
+
+1. `CToDoCtrl::DelayLoad` (`Core/ToDoList/ToDoCtrl.cpp:4636-4656`) calls
+   `CTaskFile::LoadHeader` (line 4643).
+2. `CTaskFile::LoadHeader` is a normal `Load` with a parse callback
+   (`Core/ToDoList/TaskFile.cpp:300-305`).
+3. `CXmlFile::LoadEx` reads the **whole file** into one `CString` and builds the
+   **whole MSXML DOM** before item walking begins
+   (`Core/Shared/XmlFile.cpp:1148-1190`). The callback stops only after the DOM exists;
+   `CTFHeaderParse::Continue` simply aborts at the first `<TASK>`
+   (`Core/ToDoList/TaskFile.cpp:44-59`).
+4. `DelayOpenTaskList` still creates a **complete** `CFilteredToDoCtrl` window
+   (`Core/ToDoList/ToDoListWnd.cpp:4484` → `NewToDoCtrl`, 8195-8262 →
+   `CToDoCtrl::Create`, `ToDoCtrl.cpp:543-549` → `OnInitDialog`, 563-605, which creates
+   the task tree/list, comments control, attribute editor, splitters and timers).
+5. `AddToDoCtrl` then calculates the control rect and calls `MoveWindow` **even when
+   the tasklist is delay-loaded**, and only afterwards hides it
+   (`Core/ToDoList/ToDoListWnd.cpp:6957-6979`). So the full layout/splitter pass runs
+   for a tab that will not be shown.
+6. It also inserts a tab (`CToDoCtrlMgr::AddToDoCtrl`,
+   `Core/ToDoList/ToDoCtrlMgr.cpp:970-1001`), adds a time-tracker entry
+   (`ToDoListWnd.cpp:4537`) and updates due-status/reminder bookkeeping.
+
+What is actually saved is `CToDoCtrl::LoadTasks` (`ToDoCtrl.cpp:4658-4822`): building
+`TODOITEM`/`TODOSTRUCTURE`, the tree, restoring sort/selection, and the column-width
+pass. That is the cheap part for typical tasklists.
+
+#### Measurements
+
+Release build (`ToDoList.exe`, file version 9.2.997.7, Win32), one process per run,
+temporary ini passed with `-i`, 12 copies of the bundled samples in `%TEMP%`. Wall
+clock was taken until the tasklist tab count reached the expected value (the tab bar is
+populated only after each file has been opened or delay-created). Single runs; treat
+as ±10% and compare like-for-like.
+
+| Scenario | Docs | Delayed loading | Time to last tab |
+|---|---|---|---|
+| 1 × `biglist.tdl` (1.7 MB) | 1 | on | **4.6 s** |
+| 12 × `biglist.tdl` | 12 | on | **21.6 s** |
+| 12 × `biglist.tdl` | 12 | off | **22.2 s** |
+
+Delayed loading saves ~0.5 s of a 22 s start (≈2%). Marginal cost per additional
+document is ≈1.55 s.
+
+A second probe used the application's own `-g` log and waited until it stopped growing
+for 4 s (the 4 s window is a constant and is subtracted below). This isolates content
+size:
+
+| Scenario | Docs | Delayed loading | Settle (incl. 4 s window) | Corrected |
+|---|---|---|---|---|
+| empty start (`-e`) | 0 | – | 7.6 s | **3.6 s** |
+| `Evidence Board.tdl` (7.7 KB) | 1 | on | 11.7 s | **7.7 s** |
+| same | 2 | on | 13.3 s | **9.3 s** |
+| same | 4 | on | 16.0 s | **12.0 s** |
+| same | 12 | on | 30.4 s | **26.4 s** |
+| `biglist.tdl` (1.7 MB) | 12 | on | 31.1 s | **27.1 s** |
+
+12 documents of 7.7 KB cost the same as 12 documents of 1.7 MB (0.7 s total
+difference, ≈0.06 s per document for 20 MB of extra XML). The per-document cost is
+therefore **content-independent**: it is window/control construction and UI
+bookkeeping, not parsing.
+
+Log evidence from the 12 × `biglist.tdl` delayed start:
+
+```text
+CToDoListWnd::OpenTaskList(pre) took 1375 ms   // NewToDoCtrl + first control creation
+CToDoCtrl::Load(biglist01.tdl) took 343 ms     // read + DOM + tree, whole 1.7 MB file
+CToDoListWnd::OpenTaskList(post) took 703 ms   // reminders, time tracker, find, status
+CToDoListWnd::OpenTaskList() took 2468 ms      // active document, end to end
+```
+
+Only **one** `CToDoCtrl::Load(` line appears in that run: the other 11 tabs really were
+delay-loaded, so the remaining ~17 s produced no task data at all. The only logged
+per-tab work is 12 idle `RecalcUntrackedColumnWidths` passes of 15–47 ms (≈0.3 s).
+
+#### Why the window still looks hung
+
+`RestoreVisibility()` (called at `ToDoListWnd.cpp:2575`) shows the main window before
+the load loop (`2618-2695`), and the whole loop then runs synchronously inside
+`OnPostOnCreate` with no message pump. The frame is therefore visible while the process
+is unresponsive, which makes a 10+ document start look worse than it is.
+
+#### Recommended fix order
+
+1. **Make delay-loaded tabs path-only.** Store path, project name and custom attribute
+   definitions in the tab entry and construct `CToDoCtrl` on first activation. This
+   removes the ~1.4–1.8 s per-document cost. `CToDoCtrlMgr::TDCITEM` currently requires
+   a live `pTDC` (`Core/ToDoList/ToDoCtrlMgr.h/.cpp`), so this needs a contained lazy
+   factory or a null-tolerant item; record it as a new `CUST-nnn` per `AGENTS.md`.
+2. **Interim, low-risk:** skip `CalcToDoCtrlRect`/`MoveWindow` for delay-loaded
+   controls in `AddToDoCtrl` (`ToDoListWnd.cpp:6957-6960`) so hidden tabs are not laid
+   out; build/size splitters and panes on first show. Skip per-tab idle column-width
+   recalculation while hidden.
+3. **Cheap header read.** `DelayLoad` needs only project name, custom attribute defs
+   and the earliest due date. Read just the prefix up to `<TASK` (or persist the
+   fields in the ini) instead of loading and DOM-parsing the whole file
+   (`ToDoCtrl.cpp:4643`, `TaskFile.cpp:300-305`, `XmlFile.cpp:1148-1190`). Note the
+   reminder check is already an ini lookup
+   (`Core/ToDoList/ToDoCtrlReminders.cpp:560-571`), so the header parse exists only for
+   the due-date pre-scan.
+4. **Defer per-tab bookkeeping** until first activation: time-tracker
+   `AddTasklist` (`ToDoListWnd.cpp:4537`), checkout/read-only checks
+   (`ToDoCtrlMgr.cpp:994-996`), and the find-dialog update
+   (`ToDoListWnd.cpp:4837`).
+5. **Reduce the fixed ~3.6 s floor.** `OnCreate` forces the content-plugin scan through
+   `m_mgrContent.SomePluginsHaveBadversions()` (`ToDoListWnd.cpp:1150` →
+   `Core/Interfaces/ContentMgr.cpp:51-74`), which enumerates every DLL in the exe
+   folder and `LoadLibrary`s each one. Defer it until content is first needed. Also
+   measured: `CPreferences::SaveInternal` 78 ms, and menubar/theme/font/shortcut
+   initialisation before the first tasklist.
+6. **Make startup progressive.** Post each open (or the whole last-file loop) to the
+   message queue so tabs appear and paint one by one instead of blocking
+   `OnPostOnCreate`.
 
 ---
 
@@ -655,6 +806,45 @@ Proposed design:
 The harness itself is a `customized/` artefact (new `CUST-nnn`) because it adds
 non-upstream test code.
 
+### 7.5 Startup measurement (multi-document)
+
+The UI harness does not cover process startup, so startup is measured separately. No
+code changes are needed; the application already logs enough with `-g`.
+
+1. Build the Release exe (Debug is 2–4× slower and not representative).
+2. Copy the live ini and replace its `[Settings]` section with the document list:
+
+   ```ini
+   [Settings]
+   FindTasksVisible=0
+   LastActiveFile="C:\temp\perf\biglist01.tdl"
+   LastFile0="C:\temp\perf\biglist01.tdl"
+   LastFile1="C:\temp\perf\biglist02.tdl"
+   ...
+   NumLastFiles=12
+   ```
+
+   Keep `[Preferences] ReloadTasklists=1` and set `EnableDelayedLoading=0|1` to
+   compare the option. Positional command-line paths cannot be used for this: only the
+   first is kept (`TDCStartupOptions.cpp:256-271`).
+3. Use N copies of a small sample and N copies of a large sample, so content size and
+   per-document overhead can be separated. The bundled
+   `Resources\Examples\Evidence Board.tdl` (7.7 KB) and `biglist.tdl` (1.7 MB) are
+   adequate.
+4. Launch with `-i <ini> -g` and stop timing when either:
+   - the main tab control reports N items (`TCM_GETITEMCOUNT` on control ID 1060), or
+   - the log file stops growing for 4 s (subtract the 4 s to compare with runs that
+     used the tab count).
+5. Report: empty start (`-e`), 1, 2, 4, 12 documents; 12 small vs 12 large; delayed
+   loading on vs off. Run each twice and use the second run.
+
+Acceptance targets for a fix:
+
+- marginal cost per additional restored document below ~200 ms;
+- delayed loading measurably faster than full loading for 10+ documents (today the
+  difference is ≈2%);
+- the main window remains responsive while tabs are still loading.
+
 ---
 
 ## 8. Recommended fix sequence
@@ -718,6 +908,14 @@ non-upstream test code.
     `WS_EX_COMPOSITED` only on the small splitter/container window, and measure the
     trade-off (it can increase CPU and affect child z-order).
 
+### P0-5 – startup with many documents
+
+The six steps in P0-5's "Recommended fix order" are the startup equivalent of the
+splitter work and should be treated the same way: build the measurement in 7.5 first,
+change one step at a time, and compare the per-document marginal cost. The first two
+steps are local to `AddToDoCtrl`/`DelayOpenTaskList` and can be shipped ahead of the
+full lazy-tab redesign.
+
 ---
 
 ## 9. Progress log
@@ -748,6 +946,13 @@ non-upstream test code.
       ([customized/CUST-004-ui-perf-harness.md](customized/CUST-004-ui-perf-harness.md)).
 - [x] Run the harness on the unmodified tree and record the baseline (splitter
       artefacts reproduced; list scroll clean with the synthetic fixture).
+- [x] Identified the startup path for restored tasklists (`[Settings] LastFile<n>`), the
+      command-line limitation (only one positional path) and the delayed-load path
+      (see P0-5).
+- [x] Measured multi-document startup on Release: 1 doc 4.6 s, 12 docs 21.6 s (delayed
+      loading) / 22.2 s (full loading); 12 × 7.7 KB ≈ 12 × 1.7 MB, so the cost is
+      per-tab control creation, not file parsing.
+- [ ] Implement a P0-5 step (skip layout for delay-loaded tabs first) and re-run 7.5.
 - [ ] Re-run the splitter experiments only after the harness passes the baseline.
 - [ ] Implement and measure the remaining P0 fixes (ghost tracker + inner splitter).
 - [ ] Re-run the measurement matrix and update this document with numbers.
@@ -767,5 +972,9 @@ non-upstream test code.
 | Tree/list paint entry points | `Core/ToDoList/TDLTaskTreeCtrl.cpp`, `Core/ToDoList/TDLTaskListCtrl.cpp` |
 | Column width calculation | `Core/ToDoList/TDLTaskCtrlBase.cpp`, `Core/ToDoList/ToDoCtrlDataUtils.cpp` |
 | Filter rebuild | `Core/ToDoList/FilteredToDoCtrl.cpp` |
+| Startup / restore last tasklists | `Core/ToDoList/ToDoListWnd.cpp` (`OnPostOnCreate`, `OpenTaskList`, `DelayOpenTaskList`, `AddToDoCtrl`, `NewToDoCtrl`), `Core/ToDoList/ToDoCtrlMgr.cpp` |
+| Delayed loading | `Core/ToDoList/ToDoCtrl.cpp` (`DelayLoad`), `Core/ToDoList/TaskFile.cpp` (`LoadHeader`), `Core/Shared/XmlFile.cpp` (`LoadEx`) |
+| Startup options / document list | `Core/ToDoList/TDCStartupOptions.cpp`, `Core/ToDoList/PreferencesGenPage.cpp` |
+| Plugin discovery | `Core/Interfaces/ContentMgr.cpp`, `Core/Interfaces/UIExtensionMgr.cpp` |
 | Themed row drawing | `Core/Shared/GraphicsMisc.cpp`, `Core/Shared/Themed.cpp` |
 | Logging/timers | `Core/Shared/ScopedTimer.cpp`, `Core/Shared/FileMisc.cpp` |
