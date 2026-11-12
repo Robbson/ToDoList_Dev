@@ -2,11 +2,25 @@
 
 | Field | Value |
 |---|---|
-| Status | Deferred (cause identified; local fixes reverted) |
+| Status | Deferred (all targeted tree experiments reverted) |
 | Upstream baseline | ToDoList 9.3.DP7 |
 | Scope | Task List View scrolling/repainting; related Task Tree history |
 | Default | No behaviour change; no code retained |
 | Related | [index.md](index.md), [../PERFORMANCE.md](../PERFORMANCE.md), [CUST-004](CUST-004-ui-perf-harness.md) |
+
+## Summary
+
+- **List View:** copied rows occur for both keyboard Page keys and mouse
+  wheel. The ListView API has no "change the top row without scrolling"
+  operation, so there is no partial fix equivalent to the tree's
+  `TreeView_SelectSetFirstVisible`.
+- **Task Tree:** using `TreeView_SelectSetFirstVisible` for Page keys reduces
+  the artefacts, but breaks the caret/selection behaviour in the current
+  two-window design. The correct caret handling could not be restored without
+  reintroducing the native scroll (and therefore the copies).
+- All code experiments are reverted. CUST-002 is deferred; a real fix requires
+  replacing the controls' scroll-copy path (custom scroll/repaint or a
+  non-native control), not post-scroll repainting.
 
 ## Problem
 
@@ -194,8 +208,40 @@ result, so no code from them remains in the working tree.
    and its columns list after a scroll. Result: both the artefact and the
    flicker were present together.
 
-The conclusion is that the current architecture (separate TreeView and columns
-ListView, both app-custom-drawn, with the syncer scrolling them separately)
+A dynamic `TVS_EX_DOUBLEBUFFER` toggle (off for Page keys, on for wheel) was
+considered but not implemented. It would only choose which symptom appears:
+`TVS_EX_DOUBLEBUFFER` is a window style and changing it forces a repaint, the
+scroll may paint after the style is restored, and without the buffer the Page
+key scroll still copies rows unless it uses `TreeView_SelectSetFirstVisible`.
+
+### Failed experiment: native key handling + full tree repaint (reverted)
+
+Tried and reverted:
+
+- Page Up/Down and line keys used the native tree handling exactly, preserving
+  the caret/selection behaviour.
+- After a tree Page key the whole tree client was invalidated and updated, with
+  `TVS_EX_DOUBLEBUFFER` still enabled.
+
+Result: the caret worked correctly, but the artefact frequency was unchanged
+from the original. The repaint is issued after `ScDefault` has already scrolled
+and blitted the copied rows, so it can only correct the final state. It cannot
+hide the copies that are on screen during the scroll; a full custom-draw repaint
+of the visible rows also takes long enough for that interval to remain visible.
+The attribute columns were not repainted in this version.
+
+Earlier variants:
+
+- Inhibiting the native scroll (`SelectSetFirstVisible` only) made trees less
+  prone to artefacts but changed the caret behaviour.
+- Overriding the selection with `CTreeSelectionHelper` made the caret snap to
+  first/last and stay there.
+- Fully repainting the attribute columns list made the attribute-side artefacts
+  worse (full-row artifacts).
+
+No code from these experiments is retained. The conclusion is that the current
+architecture (separate TreeView and columns ListView, both app-custom-drawn, with
+the syncer scrolling them separately)
 cannot reproduce the 6.9.6 behaviour with these local fixes. 6.9.6 used a single
 `COrderedTreeCtrl` whose columns were drawn in a non-client gutter, so the tree
 and its columns were rendered as one surface. Removing the double buffer in the
@@ -266,11 +312,12 @@ tried, built and rejected.
 
 ## Files involved
 
-No source changes are retained. The investigation touched these files and all
+No code is retained. These files were touched during the investigation and all
 were reverted:
 
-- `Core/Shared/TreeListSyncer.cpp`
 - `Core/Shared/TreeListSyncer.h`
+- `Core/Shared/TreeListSyncer.cpp`
+- `Core/ToDoList/TDLTaskTreeCtrl.h`
 - `Core/ToDoList/TDLTaskTreeCtrl.cpp`
 - `Core/ToDoList/TDLTaskCtrlBase.h`
 - `Core/ToDoList/TDLTaskCtrlBase.cpp`
@@ -279,10 +326,11 @@ were reverted:
 
 ## Verification
 
-- Reverted tree with the current code builds (`Unicode Debug|Win32`) and the
-  CUST-004 `ListScrollSync` check still passes.
+- The reverted tree builds (`Unicode Debug|Win32`).
+- CUST-004 `ListScrollSync` (Page Down, real sample) still passes:
+  `syncErrors=0`, `maxDiff=0`, `artifactSteps=0`.
 - `TDLTest`: 310240/310264 pass; the 24 failures are the pre-existing
   `CTDCTaskMatcherTest::IndividualRules` failures already recorded in CUST-001.
-- The tree Page Up/Down experiments were validated manually only. There is no
-  automated tree-scroll scenario in CUST-004; adding one is a prerequisite for
-  any future attempt.
+- Tree Page Up/Down was validated manually only. There is no automated
+  tree-scroll scenario in CUST-004 yet; adding one is a prerequisite for any
+  further attempt.
