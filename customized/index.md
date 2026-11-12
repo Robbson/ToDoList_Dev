@@ -44,6 +44,6 @@ customized/
 | ID | Title | Status | Document |
 |---|---|---|---|
 | CUST-001 | Legacy (v8.2-style) attribute editor, selectable | In progress (Phases 1–3 done; date painting pending) | [CUST-001-legacy-attribute-editor.md](CUST-001-legacy-attribute-editor.md) |
-| CUST-002 | Duplicated rows in List View while scrolling | In progress (tree Page keys experiment) | [CUST-002-list-view-stale-title.md](CUST-002-list-view-stale-title.md) |
+| CUST-002 | Duplicated rows in List View while scrolling | Deferred (all targeted tree experiments reverted) | [CUST-002-list-view-stale-title.md](CUST-002-list-view-stale-title.md) |
 | CUST-003 | Splitter paint performance (attempted) | Deferred (three iterations tested; all reverted) | [CUST-003-splitter-paint-performance.md](CUST-003-splitter-paint-performance.md) |
 | CUST-004 | Automated UI performance/artefact harness | In progress (implemented/built; interactive baseline pending) | [CUST-004-ui-perf-harness.md](CUST-004-ui-perf-harness.md) |

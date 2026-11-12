@@ -220,6 +220,42 @@ synchronisation (tree ↔ list ↔ extension) is implemented by `CTabbedToDoCtrl
 rebuilds the list from the tree's visible task IDs and caches/restores selection when the
 user switches view tabs.
 
+#### 4.2.1 Task-view rendering: 6.9.6 vs current
+
+The repository does not contain a written rationale for the change, so the table
+records the observable design differences and their consequences. The old source is
+available in the sibling `todolist_src.6.9.6` checkout for comparison.
+
+| Aspect | 6.9.6: `COrderedTreeCtrl` + `CNcGutter` | Current: title control + attribute `CListCtrl` |
+|---|---|---|
+| Column placement | Painted in the tree's non-client area by a custom gutter | Real `CListCtrl` with a real header control |
+| Column resize/reorder/sort | Custom gutter implementation | Native ListView/header behaviour plus shared column catalogue |
+| List View parity | Separate tree and list rendering paths | Both views derive from `CTDLTaskCtrlBase` and share column rendering/selection plumbing |
+| Splitter/frozen title column | Gutter width, no independent window split | Separate title and attribute windows with a movable splitter |
+| Scrolling | One window owns the scroll position | Two windows must be scrolled and kept in step by `CTreeListSyncer` |
+| Scroll artefacts | Possible from the native tree scroll + custom drawing | Possible in both panes; the two-window sync adds a second copy source |
+| Selection | One control | Tree/list selection and the attribute list are synchronised |
+| Main cost | Custom column painting, header and hit-testing in the gutter | Cross-window synchronisation, splitter state and the scroll-paint issues in CUST-002 |
+
+Why the current design was likely chosen (inferred from what the code enables):
+
+- Attribute columns behave like real ListView columns: user resize/reorder, header
+  clicks, sort indicators, auto-fit and column visibility, without reimplementing
+  them in a non-client gutter.
+- The flat List View and the Task Tree can share `CTDLTaskCtrlBase`, the column
+  catalogue, row colours, selection and sorting.
+- The title column can stay frozen while the attribute columns scroll, and the
+  splitter can be moved independently.
+- ListView theming, high-DPI behaviour, accessibility and editing infrastructure are
+  reused instead of maintained twice.
+
+The trade-off is the two-window scroll-synchronisation and paint behaviour documented
+in CUST-002. The old single-window design did not have the cross-window mismatch, but
+it still used the native tree scroll and custom drawing, so it was not inherently free
+of scroll-copy artefacts.
+
+
+
 ### 4.3 Views, tabs and filters
 
 - The tree view is always available. The flat list view is an optional tab
