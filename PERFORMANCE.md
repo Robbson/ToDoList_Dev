@@ -1050,6 +1050,13 @@ measurement in 7.5, change one step at a time and compare the marginal cost.
       Six startup variants (multi-document, missing file, no session, `-e`, reload
       disabled, `-f`) verified in Debug and Release with zero new assertions; `TDLTest`
       unchanged.
+- [x] Fixed the `0xC000041D` crash the first CUST-006 build produced when the first
+      restored document was delay-loaded: the frame was shown while the only tab had no
+      window, so `Resize`/`ReposTaskList` used the never-created fallback control.
+      `ShowStartupWindow`/`ReposTaskList`/`SelectToDoCtrl` now require a window, and
+      `CToDoCtrlMgr::FindToDoCtrl(const CFilteredToDoCtrl*)` compares objects instead of
+      window handles. Verified with the real 8-document release ini and with tab
+      activation of every delay-loaded document.
 - [ ] Replace the whole-file `LoadHeader` parse with a header-prefix read.
 - [ ] Make startup progressive (post each document open).
 - [ ] Re-run the splitter experiments only after the harness passes the baseline.

@@ -2991,8 +2991,11 @@ void CToDoListWnd::RestoreVisibility(BOOL bShow)
 
 void CToDoListWnd::ShowStartupWindow()
 {
-	// show the window only once there is a tasklist for it to show
-	if ((m_bVisible > 0) && !IsWindowVisible())
+	// Show the window only once there is a tasklist with a window to
+	// show. During a restore the first tab may still be delay-loaded.
+	int nSel = GetSelToDoCtrl();
+
+	if ((m_bVisible > 0) && !IsWindowVisible() && (nSel >= 0) && GetToDoCtrl(nSel).GetSafeHwnd())
 		RestoreVisibility(TRUE);
 }
 
@@ -6857,10 +6860,20 @@ void CToDoListWnd::ReposTaskList(CDeferWndMove* pDwm, CRect& rAvailable)
 
 		if (pDwm)
 		{
-			CFilteredToDoCtrl& tdc = GetToDoCtrl();
+			// While restoring a session the only tasklist may still be
+			// delay-loaded and therefore have no window to move
+			int nSel = GetSelToDoCtrl();
 
-			pDwm->MoveWindow(&tdc, rAvailable, FALSE);
-			tdc.Invalidate();
+			if (nSel >= 0)
+			{
+				CFilteredToDoCtrl& tdc = GetToDoCtrl(nSel);
+
+				if (tdc.GetSafeHwnd())
+				{
+					pDwm->MoveWindow(&tdc, rAvailable, FALSE);
+					tdc.Invalidate();
+				}
+			}
 		}
 	}
 }
@@ -9099,9 +9112,13 @@ BOOL CToDoListWnd::SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDu
 
 	// resize tdc first
 	CFilteredToDoCtrl& tdcShow = GetToDoCtrl(nIndex);
+
+	// A tasklist that has never been activated has no window yet
+	// (see CUST-005) and nothing can be moved, shown or focused
+	BOOL bHaveWnd = (tdcShow.GetSafeHwnd() != NULL);
 	CRect rTDC;
 	
-	if (CalcToDoCtrlRect(rTDC))
+	if (bHaveWnd && CalcToDoCtrlRect(rTDC))
 		tdcShow.MoveWindow(rTDC);
 	
 	m_tabCtrl.SetCurSel(nIndex); // this changes the selected CToDoCtrl
@@ -9116,9 +9133,12 @@ BOOL CToDoListWnd::SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDu
 	if (m_nMaxState == TDCMS_MAXCOMMENTS)
 		m_nMaxState = TDCMS_NORMAL;
 	
-	tdcShow.SetMaximizeState(m_nMaxState);
-	tdcShow.EnableWindow(TRUE);
-	tdcShow.ShowWindow(SW_SHOW);
+	if (bHaveWnd)
+	{
+		tdcShow.SetMaximizeState(m_nMaxState);
+		tdcShow.EnableWindow(TRUE);
+		tdcShow.ShowWindow(SW_SHOW);
+	}
 
 	// if the tasklist is encrypted and todolist always prompts for password
 	// then disable Flip3D and Aero Peek
@@ -9128,14 +9148,20 @@ BOOL CToDoListWnd::SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDu
 	if (nCurSel != -1 && nCurSel != nIndex)
 	{
 		CFilteredToDoCtrl& tdcHide = GetToDoCtrl(nCurSel);
-		
-		tdcHide.ShowWindow(SW_HIDE);
-		tdcHide.EnableWindow(FALSE);
+
+		if (tdcHide.GetSafeHwnd())
+		{
+			tdcHide.ShowWindow(SW_HIDE);
+			tdcHide.EnableWindow(FALSE);
+		}
 	}
 	
-	tdcShow.SetFocus(TDCSF_TASKVIEW);
-	tdcShow.Invalidate(TRUE);
-	tdcShow.UpdateWindow();
+	if (bHaveWnd)
+	{
+		tdcShow.SetFocus(TDCSF_TASKVIEW);
+		tdcShow.Invalidate(TRUE);
+		tdcShow.UpdateWindow();
+	}
 	
 	if (!m_bClosing)
 	{

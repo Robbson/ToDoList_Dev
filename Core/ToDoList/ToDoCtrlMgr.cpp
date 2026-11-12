@@ -1476,7 +1476,21 @@ int CToDoCtrlMgr::FindToDoCtrl(const CFilteredToDoCtrl* pTDC) const
 	if (pTDC == NULL)
 		return -1;
 
-	return FindToDoCtrl(pTDC->GetSafeHwnd());
+	// Compare objects first because delay-loaded tasklists may not have
+	// a window yet (see CUST-005)
+	int nCtrl = GetCount();
+
+	while (nCtrl--)
+	{
+		if (pTDC == GetTDCItem(nCtrl).pTDC)
+			return nCtrl;
+	}
+
+	// then fall back to the window handle
+	if (pTDC->GetSafeHwnd())
+		return FindToDoCtrl(pTDC->GetSafeHwnd());
+
+	return -1;
 }
 
 int CToDoCtrlMgr::FindToDoCtrl(const TSM_TASKLISTINFO& info) const

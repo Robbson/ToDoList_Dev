@@ -62,6 +62,44 @@ Files: `Core/ToDoList/ToDoListWnd.h`, `Core/ToDoList/ToDoListWnd.cpp`,
      tasklist exists" path now registers that control with the time tracker, which it
      never needed to do while the placeholder always existed.
 
+## Crash found after the first version (and fixed)
+
+The first implementation crashed with `0xC000041D` when the first restored document
+was delay-loaded:
+
+```text
+CToDoCtrlMgr::GetToDoCtrl (fallback control, no HWND)
+  <- CToDoListWnd::ReposTaskList
+  <- CToDoListWnd::Resize
+  <- CToDoListWnd::OnSize
+  <- RestoreVisibility -> ShowStartupWindow -> OnPostOnCreate
+```
+
+`ShowStartupWindow()` showed the frame as soon as *any* tab existed, but the first tab
+opened during a restore is normally delay-loaded and has no window (CUST-005). With no
+selection the single-argument `GetToDoCtrl()` returned the never-created fallback
+control, and `CDeferWndMove::MoveWindow` called `ScreenToClient` on the fallback's null
+parent.
+
+The same class of problem appeared in two more places once window-less tabs existed:
+
+- `SelectToDoCtrl` moved/showed/focused/called `SetMaximizeState` on a tab that had no
+  window (hit on shutdown via `CloseToDoCtrl`, `CRuntimeDlg::ShowWindow` assert).
+- `CToDoCtrlMgr::FindToDoCtrl(const CFilteredToDoCtrl*)` looked the control up by
+  window handle, so a window-less tab was reported as "not found". This broke
+  `GetNextMostSelectableToDoCtrl` during close, which then indexed `-1`.
+
+Fixes:
+
+- `ShowStartupWindow()` requires a selected tasklist **with a window**.
+- `ReposTaskList()` only moves the selected tasklist when it has a window.
+- `SelectToDoCtrl()` guards the layout, show/hide, focus, invalidate and
+  `SetMaximizeState` calls on `GetSafeHwnd()`.
+- `CToDoCtrlMgr::FindToDoCtrl(const CFilteredToDoCtrl*)` compares object pointers
+  first and only falls back to the window handle.
+
+None of these change behaviour for windowed tasklists.
+
 ## Results
 
 Release, poll until all tabs exist (two runs each), same temp ini:
@@ -91,6 +129,12 @@ ready, instead of showing and then replacing the placeholder.
 - Debug and Release, six startup variants (3 documents, 3 + one missing, no session,
   `-e`, reload disabled, `-f` command line): expected tabs and title for each, clean
   shutdown (exit code 0), and **zero new entries** in `%TEMP%\ToDoList_asserts.log`.
+- The configuration that originally crashed (first tab delay-loaded, active document
+  later in the list; the real `unicode_release/ToDoList.ini` with 8 documents):
+  started three times in Release and three times in Debug, correct active document,
+  clean exit, zero new assertions.
+- Activating every delay-loaded tab via View > Next (`ID_VIEW_NEXT`) and then closing:
+  titles followed the active tab, exit code 0, zero new assertions.
 - Release `TDLTest.exe`: 310937/310961, identical to before (the 24 failures are the
   pre-existing `CTDCTaskMatcherTest` locale failures).
 
@@ -100,6 +144,10 @@ ready, instead of showing and then replacing the placeholder.
   paths that reach into a tasklist during that window were audited for the startup
   cases above; new code should check `GetTDCCount()`/`GetSelToDoCtrl()` before using
   `GetToDoCtrl()` during startup.
+- A tasklist can also have no window until first activation (CUST-005). Any new code
+  that moves, shows or focuses a tasklist must check `GetSafeHwnd()` first, and object
+  lookups must not rely on the window handle
+  (`CToDoCtrlMgr::FindToDoCtrl(const CFilteredToDoCtrl*)` now compares objects).
 - Modal dialogs raised by the restore loop (for example a password prompt) now have a
   hidden owner because the frame is shown only after the first tasklist exists. They
   still appear and behave normally, but are not parented to a visible window.
