@@ -21,6 +21,8 @@
 
 #include "..\3rdparty\XNamedColors.h"
 
+#include <richedit.h>
+
 /////////////////////////////////////////////////////////////////////////////
 
 enum
@@ -541,6 +543,63 @@ void CTDLCommentsCtrl::ClearContent()
 BOOL CTDLCommentsCtrl::FindReplaceAll(LPCTSTR szFind, LPCTSTR szReplace, BOOL bCaseSensitive, BOOL bWholeWord)
 {
 	return m_ctrlComments.FindReplaceAll(szFind, szReplace, bCaseSensitive, bWholeWord);
+}
+
+BOOL CTDLCommentsCtrl::FindText(LPCTSTR szFind, BOOL bCaseSensitive, BOOL bWholeWord)
+{
+	if (!szFind || !*szFind)
+		return FALSE;
+
+	// If the search has no quotes first try the whole string as a phrase
+	if ((_tcschr(szFind, _T('\"')) == NULL) && FindTextEx(szFind, bCaseSensitive, bWholeWord))
+		return TRUE;
+
+	// Otherwise parse it into terms (quoted phrases stay intact) and
+	// highlight the first term that matches
+	CStringArray aTerms;
+
+	if (Misc::ParseSearchString(szFind, aTerms) == 0)
+		return FALSE;
+
+	for (int nTerm = 0; nTerm < aTerms.GetSize(); nTerm++)
+	{
+		if (FindTextEx(aTerms[nTerm], bCaseSensitive, bWholeWord))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+BOOL CTDLCommentsCtrl::FindTextEx(LPCTSTR szFind, BOOL bCaseSensitive, BOOL bWholeWord)
+{
+	HWND hwnd = m_ctrlComments.GetSafeHwnd();
+
+	if (!hwnd || !szFind || !*szFind)
+		return FALSE;
+
+	FINDTEXTEXW ft = { 0 };
+	ft.chrg.cpMin = 0;
+	ft.chrg.cpMax = -1;
+	ft.lpstrText = (LPWSTR)szFind;
+
+	DWORD dwFlags = FR_DOWN;
+
+	if (bCaseSensitive)
+		dwFlags |= FR_MATCHCASE;
+
+	if (bWholeWord)
+		dwFlags |= FR_WHOLEWORD;
+
+	if (::SendMessage(hwnd, EM_FINDTEXTEXW, dwFlags, (LPARAM)&ft) == -1)
+		return FALSE;
+
+	// Keep the selection visible even though the Quick Find combo
+	// retains the focus and make sure the match is scrolled into view
+	::SendMessage(hwnd, EM_HIDESELECTION, FALSE, FALSE);
+	::SendMessage(hwnd, EM_SETSEL, ft.chrgText.cpMin, ft.chrgText.cpMax);
+	::SendMessage(hwnd, EM_SCROLLCARET, 0, 0);
+
+	return TRUE;
 }
 
 BOOL CTDLCommentsCtrl::GetSelectedFormat(CONTENTFORMAT& cf) const

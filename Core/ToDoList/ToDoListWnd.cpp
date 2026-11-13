@@ -182,6 +182,7 @@ enum
 	TIMER_TIMETRACKING,
 	TIMER_AUTOMINIMIZE,
 	TIMER_HIDEMOUSECURSOR,
+	TIMER_HIGHLIGHTQUICKFIND,
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1713,8 +1714,14 @@ void CToDoListWnd::OnQuickFindNext()
 		if (!tdc.SelectNextTask(m_sQuickFind, TDC_SELECTNEXT))
 		{
 			// return to start
-			if (!tdc.SelectNextTask(m_sQuickFind, TDC_SELECTFIRST))
+			if (tdc.SelectNextTask(m_sQuickFind, TDC_SELECTFIRST))
+				ScheduleQuickFindCommentsHighlight();
+			else
 				CMessageBox::AfxShow(CEnString().Format(IDS_QUICKFIND_NOTFOUND, m_sQuickFind));
+		}
+		else
+		{
+			ScheduleQuickFindCommentsHighlight();
 		}
 	}
 }
@@ -1733,8 +1740,14 @@ void CToDoListWnd::OnQuickFindPrev()
 		if (!tdc.SelectNextTask(m_sQuickFind, TDC_SELECTPREV))
 		{
 			// return to end
-			if (!tdc.SelectNextTask(m_sQuickFind, TDC_SELECTLAST))
+			if (tdc.SelectNextTask(m_sQuickFind, TDC_SELECTLAST))
+				ScheduleQuickFindCommentsHighlight();
+			else
 				CMessageBox::AfxShow(CEnString().Format(IDS_QUICKFIND_NOTFOUND, m_sQuickFind));
+		}
+		else
+		{
+			ScheduleQuickFindCommentsHighlight();
 		}
 	}
 }
@@ -1830,8 +1843,27 @@ void CToDoListWnd::ProcessQuickFindTextChange(BOOL bComboSelChange)
 
 			// Remove the just-unfound item
 			m_cbQuickFind.DeleteString(m_sQuickFind);
+			return;
 		}
 	}
+
+	ScheduleQuickFindCommentsHighlight();
+}
+
+void CToDoListWnd::HighlightQuickFindCommentsMatch()
+{
+	if (m_sQuickFind.IsEmpty() || !GetTDCCount())
+		return;
+
+	GetToDoCtrl().FindInComments(m_sQuickFind, FALSE, FALSE);
+}
+
+void CToDoListWnd::ScheduleQuickFindCommentsHighlight()
+{
+	// Defer until the comments control has been updated with
+	// the newly selected task's content
+	CFrameWnd::KillTimer(TIMER_HIGHLIGHTQUICKFIND);
+	CFrameWnd::SetTimer(TIMER_HIGHLIGHTQUICKFIND, 50, NULL);
 }
 
 BOOL CToDoListWnd::HandleReservedShortcut(DWORD dwShortcut)
@@ -7348,6 +7380,13 @@ void CToDoListWnd::OnTimer(UINT nIDEvent)
 	if (nIDEvent == TIMER_HIDEMOUSECURSOR)
 	{
 		RestoreMouseCursorIfMoved();
+		return;
+	}
+
+	if (nIDEvent == TIMER_HIGHLIGHTQUICKFIND)
+	{
+		CFrameWnd::KillTimer(TIMER_HIGHLIGHTQUICKFIND);
+		HighlightQuickFindCommentsMatch();
 		return;
 	}
 	

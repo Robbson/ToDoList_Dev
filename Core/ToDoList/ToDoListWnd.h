@@ -738,6 +738,8 @@ protected:
 	void CopySelectedTasksToClipboard(TDC_TASKS2CLIPBOARD nAsFormat);
 	void InitUITheme();
 	void ProcessQuickFindTextChange(BOOL bComboSelChange);
+	void HighlightQuickFindCommentsMatch();
+	void ScheduleQuickFindCommentsHighlight();
 	void HideMouseCursorWhileTyping();
 	void RestoreMouseCursorIfMoved(BOOL bForce = FALSE);
 	BOOL GetAutoArchiveOptions(TDC_ARCHIVE& nRemove, BOOL& bRemoveFlagged) const;

@@ -412,6 +412,10 @@ public:
 	BOOL GetCommentsFormat(CONTENTFORMAT& cf) const { return m_ctrlComments.GetSelectedFormat(cf); }
 	BOOL SetCommentsFormat(const CONTENTFORMAT& cf) { return m_ctrlComments.ChangeSelectedFormat(cf); }
 	BOOL CanChangeCommentsFormat() const;
+	BOOL FindInComments(LPCTSTR szText, BOOL bCaseSensitive, BOOL bWholeWord) 
+	{ 
+		return m_ctrlComments.FindText(szText, bCaseSensitive, bWholeWord); 
+	}
 
 	const CTDCImageList& GetTaskIconImageList() const;
 

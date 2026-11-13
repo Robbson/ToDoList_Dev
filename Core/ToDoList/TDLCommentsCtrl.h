@@ -59,6 +59,7 @@ public:
 	void ClearContent();
 
 	BOOL FindReplaceAll(LPCTSTR szFind, LPCTSTR szReplace, BOOL bCaseSensitive, BOOL bWholeWord);
+	BOOL FindText(LPCTSTR szFind, BOOL bCaseSensitive, BOOL bWholeWord);
 
 	BOOL Undo() { return m_ctrlComments.Undo(); }
 	BOOL Redo() { return m_ctrlComments.Redo(); }
@@ -95,6 +96,8 @@ protected:
 
 protected:
 	int DoModal() { ASSERT(0); return IDCANCEL; }
+
+	BOOL FindTextEx(LPCTSTR szFind, BOOL bCaseSensitive, BOOL bWholeWord);
 
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
 	virtual BOOL OnInitDialog();

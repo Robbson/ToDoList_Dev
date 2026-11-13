@@ -51,3 +51,4 @@ customized/
 | CUST-006 | No throwaway tasklist at startup | Done | [CUST-006-no-throwaway-tasklist.md](CUST-006-no-throwaway-tasklist.md) |
 | CUST-007 | Comments editor controls moved to the main toolbar | Done | [CUST-007-comments-toolbar-in-main-toolbar.md](CUST-007-comments-toolbar-in-main-toolbar.md) |
 | CUST-008 | Hide mouse pointer while typing in text controls | Done | [CUST-008-comments-hide-pointer-while-typing.md](CUST-008-comments-hide-pointer-while-typing.md) |
+| CUST-009 | Highlight Quick Find matches in the comments editor | Done | [CUST-009-quickfind-comments-highlight.md](CUST-009-quickfind-comments-highlight.md) |
