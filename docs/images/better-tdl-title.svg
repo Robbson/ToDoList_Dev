@@ -24,9 +24,9 @@
      inkscape:pageopacity="0.0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="0.57348029"
-     inkscape:cx="1404.5818"
-     inkscape:cy="173.50204"
+     inkscape:zoom="0.8110236"
+     inkscape:cx="746.5874"
+     inkscape:cy="201.59709"
      inkscape:window-width="3440"
      inkscape:window-height="1377"
      inkscape:window-x="-8"
@@ -71,7 +71,7 @@
      textLength="844"
      lengthAdjust="spacingAndGlyphs"
      id="text2"
-     transform="translate(14,16)">Better <tspan
+     transform="matrix(1,0,0,0.92538896,-10,19.528358)">Better<tspan
    style="fill:#6e6e6e;fill-opacity:1"
    id="tspan2">TDL</tspan></text>
 </svg>
