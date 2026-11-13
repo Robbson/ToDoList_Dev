@@ -49,3 +49,4 @@ customized/
 | CUST-004 | Automated UI performance/artefact harness | In progress (implemented/built; interactive baseline pending) | [CUST-004-ui-perf-harness.md](CUST-004-ui-perf-harness.md) |
 | CUST-005 | Deferred window creation for delay-loaded tasklists | Done | [CUST-005-delayed-tasklist-window.md](CUST-005-delayed-tasklist-window.md) |
 | CUST-006 | No throwaway tasklist at startup | Done | [CUST-006-no-throwaway-tasklist.md](CUST-006-no-throwaway-tasklist.md) |
+| CUST-007 | Comments editor controls moved to the main toolbar | Done | [CUST-007-comments-toolbar-in-main-toolbar.md](CUST-007-comments-toolbar-in-main-toolbar.md) |

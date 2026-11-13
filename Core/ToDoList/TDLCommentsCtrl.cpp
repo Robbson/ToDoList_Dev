@@ -38,7 +38,8 @@ const int LABELLEN_DLU = 40;
 IMPLEMENT_DYNAMIC(CTDLCommentsCtrl, CRuntimeDlg)
 
 CTDLCommentsCtrl::CTDLCommentsCtrl(BOOL bShowLabel, BOOL bShowToolbar, int nComboLenDLU, 
-								   const CTDCContentMgr* pMgrContent, const CShortcutManager* pMsgShortcuts)
+								   const CTDCContentMgr* pMgrContent, const CShortcutManager* pMsgShortcuts,
+								   BOOL bShowFormatCombo)
 	:
 	m_pMgrContent(pMgrContent), 
 	m_pMgrShortcuts(pMsgShortcuts),
@@ -47,6 +48,7 @@ CTDLCommentsCtrl::CTDLCommentsCtrl(BOOL bShowLabel, BOOL bShowToolbar, int nComb
 	m_bReadOnlyComments(FALSE),
 	m_bShowLabel(bShowLabel),
 	m_bShowToolbar(bShowToolbar),
+	m_bShowFormatCombo(bShowFormatCombo),
 	m_bUpdatingFormat(FALSE)
 {
 	int nComboOffsetDLU = 0;
@@ -110,6 +112,9 @@ BOOL CTDLCommentsCtrl::OnInitDialog()
 
 	m_cfLastCustom.Empty();
 	m_LastCustomComments.Empty();
+
+	if (!m_bShowFormatCombo)
+		m_cbCommentsFmt.ShowWindow(SW_HIDE);
 
 	if (!m_sComboPrompt.IsEmpty())
 		m_mgrPrompts.SetComboPrompt(m_cbCommentsFmt, m_sComboPrompt);
@@ -385,7 +390,7 @@ void CTDLCommentsCtrl::CalcCommentsCtrlRect(CRect& rCtrl, int cx, int cy) const
 		rCtrl.SetRect(0, 0, cx, cy);
 
 	CRect rCombo = GetCtrlRect(IDC_COMBO);
-	rCtrl.top = (rCombo.bottom + CDlgUnits(this).ToPixelsY(2));
+	rCtrl.top = m_bShowFormatCombo ? (rCombo.bottom + CDlgUnits(this).ToPixelsY(2)) : 0;
 }
 
 LRESULT CTDLCommentsCtrl::OnCommentsChange(WPARAM wParam, LPARAM lParam)
@@ -561,6 +566,20 @@ BOOL CTDLCommentsCtrl::SetSelectedFormat(const CONTENTFORMAT& cf)
 
 	// else
 	UpdateControlFormat(cf);
+	return TRUE;
+}
+
+BOOL CTDLCommentsCtrl::ChangeSelectedFormat(const CONTENTFORMAT& cf)
+{
+	CONTENTFORMAT cfSel;
+
+	if ((m_cbCommentsFmt.GetSelectedFormat(cfSel) != CB_ERR) && (cfSel == cf))
+		return TRUE;
+
+	if (m_cbCommentsFmt.SetSelectedFormat(cf) == CB_ERR)
+		return FALSE;
+
+	OnSelchangeCommentsformat();
 	return TRUE;
 }
 

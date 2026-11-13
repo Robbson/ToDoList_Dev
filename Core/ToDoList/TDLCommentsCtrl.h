@@ -33,7 +33,8 @@ public:
 					 BOOL bShowToolbar, 
 					 int nComboLenDLU, 
 					 const CTDCContentMgr* pMgrContent = NULL, 
-					 const CShortcutManager* pMgrShortcuts = NULL);
+					 const CShortcutManager* pMgrShortcuts = NULL,
+					 BOOL bShowFormatCombo = TRUE);
 
 	virtual ~CTDLCommentsCtrl();
 
@@ -48,6 +49,7 @@ public:
 
 	BOOL GetSelectedFormat(CONTENTFORMAT& cf) const;
 	BOOL SetSelectedFormat(const CONTENTFORMAT& cf);
+	BOOL ChangeSelectedFormat(const CONTENTFORMAT& cf);
 	BOOL IsFormat(const CONTENTFORMAT& cf) const { return m_ctrlComments.IsFormat(cf); }
 	BOOL IsUpdatingFormat() const { return m_bUpdatingFormat; }
 
@@ -85,7 +87,7 @@ protected:
 
 	CString m_sPrefsFilePath;
 	BOOL m_bReadOnlyComments;
-	BOOL m_bShowLabel, m_bShowToolbar;
+	BOOL m_bShowLabel, m_bShowToolbar, m_bShowFormatCombo;
 
 	CONTENTFORMAT m_cfLastCustom;
 	CBinaryData m_LastCustomComments;

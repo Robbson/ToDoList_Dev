@@ -50,6 +50,7 @@
 
 #include "..\Interfaces\UIExtensionMgr.h"
 #include "..\Interfaces\uithemefile.h"
+#include "..\Interfaces\ContentTypeCombobox.h"
 
 /////////////////////////////////////////////////////////////////////////////
 // CToDoListWnd 
@@ -170,6 +171,7 @@ protected:
 	TODOITEM m_tdiDefault;
 
 	CTDCContentMgr m_mgrContent;
+	CContentTypeComboBox m_cbCommentsFmt;
 	CTDCFindFilterHelper m_findFilterHelper;
 	CTDCImportExportMgr m_mgrImportExport;
 	CTDCMenuIconMgr m_mgrMenuIcons;
@@ -365,6 +367,7 @@ protected:
 	afx_msg void OnSaveas();
 	afx_msg void OnScrollToSelectedTask();
 	afx_msg void OnSelChangeQuickFind();
+	afx_msg void OnSelChangeCommentsFormat();
 	afx_msg void OnSendSelectedTasks();
 	afx_msg void OnSendTasks();
 	afx_msg void OnSetPriority(UINT nCmdID);
@@ -784,6 +787,7 @@ protected:
 	void UpdateMenubarTabCloseBtnVisibility();
 
 	void RefreshFilterBarControls(TDC_ATTRIBUTE nAttribID = TDCA_ALL, BOOL bClearCheckboxHistory = FALSE);
+	void UpdateCommentsFormatCombo();
 	void RefreshFilterBarAdvancedFilters();
 	void RefreshTimeTrackingStatus(); // Idle task
 	void RefreshPauseTimeTracking(); // Idle task

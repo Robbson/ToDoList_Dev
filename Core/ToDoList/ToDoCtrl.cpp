@@ -252,11 +252,12 @@ CToDoCtrl::CToDoCtrl(const CTDCContentMgr& mgrContent,
 	m_matcher(m_data, m_reminders, mgrContent),
 	m_multitasker(m_data, mgrContent),
 
-	m_ctrlComments(TRUE,
-				   TRUE,
+	m_ctrlComments(FALSE,
+				   FALSE,
 				   85,
 				   &mgrContent,
-				   &mgrShortcuts),
+				   &mgrShortcuts,
+				   FALSE),
 
 	m_treeDragDrop(m_taskTree.TSH(),
 				   m_taskTree.Tree(),
@@ -982,6 +983,11 @@ void CToDoCtrl::EnableDisableComments(BOOL bHasSelection)
 	}
 
 	m_ctrlComments.SetCtrlStates(nComboState, nCommentsState);
+}
+
+BOOL CToDoCtrl::CanChangeCommentsFormat() const
+{
+	return (HasSelection() && !IsReadOnly() && !m_taskTree.SelectionHasLocked());
 }
 
 void CToDoCtrl::UpdateSelectedTaskPath()

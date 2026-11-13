@@ -120,6 +120,10 @@ const int QUICKFIND_HEIGHT = GraphicsMisc::ScaleByDPIFactor(200);
 const int QUICKFIND_VOFFSET = GraphicsMisc::ScaleByDPIFactor(1);
 const int QUICKFIND_HOFFSET = -GraphicsMisc::ScaleByDPIFactor(2);
 
+const int COMMENTSFORMAT_WIDTH = GraphicsMisc::ScaleByDPIFactor(160);
+const int COMMENTSFORMAT_HEIGHT = GraphicsMisc::ScaleByDPIFactor(200);
+const int COMMENTSFORMAT_VOFFSET = GraphicsMisc::ScaleByDPIFactor(1);
+
 /////////////////////////////////////////////////////////////////////////////
 
 #ifdef _DEBUG
@@ -378,6 +382,7 @@ CToDoListWnd::CToDoListWnd()
 	m_bLogCommands(FALSE),
 	m_bSplitting(FALSE),
 	m_statusBar(m_tdiDefault),
+	m_cbCommentsFmt(&m_mgrContent, IDI_NULL),
 	m_findFilterHelper(m_dlgFindTasks, m_filterBar),
 	m_dlgFindTasks(m_mgrContent),
 	m_idleTasks(*this)
@@ -423,6 +428,7 @@ CToDoListWnd::~CToDoListWnd()
 BEGIN_MESSAGE_MAP(CToDoListWnd, CFrameWnd)
 	ON_CBN_EDITCHANGE(IDC_QUICKFIND, OnEditChangeQuickFind)
 	ON_CBN_SELCHANGE(IDC_QUICKFIND, OnSelChangeQuickFind)
+	ON_CBN_SELENDOK(IDC_COMMENTSFORMAT, OnSelChangeCommentsFormat)
 
 	ON_COMMAND(ID_ABOUT, OnAbout)
 	ON_COMMAND(ID_ADDTIMETOLOGFILE, OnAddtimetologfile)
@@ -1015,6 +1021,7 @@ void CToDoListWnd::UpdateUITheme()
 		if (GraphicsMisc::WantDPIScaling())
 		{
 			m_cbQuickFind.DestroyWindow();
+			m_cbCommentsFmt.DestroyWindow();
 			m_tbHelperMain.Release();
 			m_toolbarMain.DestroyWindow();
 
@@ -1626,6 +1633,24 @@ BOOL CToDoListWnd::InitMainToolbar()
 
 	m_mgrPrompts.SetComboEditPrompt(m_cbQuickFind, IDS_QUICKFIND);
 	
+	// insert combobox for comments format after Insert Date/Time buttons
+	nPos = m_toolbarMain.CommandToIndex(ID_COMMENTS_INSERTDATETIME) + 1;
+	m_toolbarMain.InsertSeparator(nPos);
+	m_toolbarMain.InsertSeparator(nPos + 1);
+
+	m_toolbarMain.SetItemWidth(nPos + 1, COMMENTSFORMAT_WIDTH, rect);
+
+	rect.top += COMMENTSFORMAT_VOFFSET;
+	rect.bottom += COMMENTSFORMAT_HEIGHT;
+
+	if (!m_cbCommentsFmt.Create(WS_CHILD | WS_VISIBLE | WS_VSCROLL |
+		CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, rect, &m_toolbarMain, IDC_COMMENTSFORMAT))
+	{
+		return FALSE;
+	}
+	m_cbCommentsFmt.SetFont(&m_fontMain);
+	UpdateCommentsFormatCombo();
+
 	m_tbHelperMain.Initialize(&m_toolbarMain, &m_mgrShortcuts);
 	
 	return TRUE;
@@ -1726,6 +1751,51 @@ void CToDoListWnd::OnSelChangeQuickFind()
 	// Only process changes
 	if (m_sQuickFind != CDialogHelper::GetSelectedItem(m_cbQuickFind))
 		ProcessQuickFindTextChange(TRUE);
+}
+
+void CToDoListWnd::OnSelChangeCommentsFormat()
+{
+	if (!m_cbCommentsFmt.GetSafeHwnd() || !GetTDCCount())
+		return;
+
+	CONTENTFORMAT cf;
+
+	if (m_cbCommentsFmt.GetSelectedFormat(cf) != CB_ERR)
+		GetToDoCtrl().SetCommentsFormat(cf);
+
+	UpdateCommentsFormatCombo();
+}
+
+void CToDoListWnd::UpdateCommentsFormatCombo()
+{
+	if (!m_cbCommentsFmt.GetSafeHwnd())
+		return;
+
+	if (!GetTDCCount())
+	{
+		m_cbCommentsFmt.SetCurSel(CB_ERR);
+		m_cbCommentsFmt.EnableWindow(FALSE);
+		return;
+	}
+
+	const CFilteredToDoCtrl& tdc = GetToDoCtrl();
+	m_cbCommentsFmt.EnableWindow(tdc.CanChangeCommentsFormat() ? TRUE : FALSE);
+
+	if (m_cbCommentsFmt.GetDroppedState() || (GetFocus() == &m_cbCommentsFmt))
+		return;
+
+	CONTENTFORMAT cf;
+
+	if (!tdc.GetCommentsFormat(cf))
+	{
+		m_cbCommentsFmt.SetCurSel(CB_ERR);
+		return;
+	}
+
+	CONTENTFORMAT cfSel;
+
+	if ((m_cbCommentsFmt.GetSelectedFormat(cfSel) == CB_ERR) || (cfSel != cf))
+		m_cbCommentsFmt.SetSelectedFormat(cf);
 }
 
 void CToDoListWnd::ProcessQuickFindTextChange(BOOL bComboSelChange)
@@ -3583,6 +3653,7 @@ LRESULT CToDoListWnd::OnToDoCtrlNotifySelChange(WPARAM /*wp*/, LPARAM /*lp*/)
 {
 	// Selection changes are visualised immediately
 	UpdateStatusBar(TDCA_ALL);
+	UpdateCommentsFormatCombo();
 
 	return 0L;
 }
@@ -3597,6 +3668,7 @@ LRESULT CToDoListWnd::OnToDoCtrlNotifyViewChange(WPARAM wp, LPARAM lp)
 
 			m_idleTasks.UpdateStatusBar();
 			m_idleTasks.UpdateFocusedControl();
+			UpdateCommentsFormatCombo();
 		}
 		else
 		{
@@ -6679,6 +6751,23 @@ void CToDoListWnd::ReposToolbars(CDeferWndMove* pDwm, CRect& rAvailable)
 		m_cbQuickFind.MoveWindow(rNewPos);
 	}
 
+	// ensure m_cbCommentsFmt is positioned correctly
+	if (m_cbCommentsFmt.GetSafeHwnd())
+	{
+		nPos = m_toolbarMain.CommandToIndex(ID_COMMENTS_INSERTDATETIME) + 2;
+		m_toolbarMain.GetItemRect(nPos, rNewPos);
+
+		CRect rPrevCommentsPos = GetChildRect(&m_cbCommentsFmt);
+
+		if (rNewPos.TopLeft() != rPrevCommentsPos.TopLeft())
+		{
+			rNewPos.top += COMMENTSFORMAT_VOFFSET;
+			rNewPos.bottom = rNewPos.top + COMMENTSFORMAT_HEIGHT;
+
+			m_cbCommentsFmt.MoveWindow(rNewPos);
+		}
+	}
+
 	// Attempt to put the custom toolbar on the same line
 	if (m_toolbarCustom.GetSafeHwnd() && m_bShowingCustomToolbar)
 	{
@@ -8072,6 +8161,9 @@ void CToDoListWnd::OnViewMainToolbar()
 	
 	m_toolbarMain.ShowWindow(m_bShowingMainToolbar ? SW_SHOW : SW_HIDE);
 	m_toolbarMain.EnableWindow(m_bShowingMainToolbar);
+
+	if (m_bShowingMainToolbar)
+		UpdateCommentsFormatCombo();
 	
 	Resize();
 	Invalidate(TRUE);
@@ -9388,6 +9480,7 @@ BOOL CToDoListWnd::DoExit(BOOL bRestart, BOOL bClosingWindows)
 		m_dlgReminders.DestroyWindow();
 		m_filterBar.DestroyWindow();
 		m_dlgFindTasks.DestroyWindow();
+		m_cbCommentsFmt.DestroyWindow();
 		m_toolbarMain.DestroyWindow();
 		m_toolbarCustom.DestroyWindow();
 			
@@ -13324,6 +13417,7 @@ void CToDoListWnd::OnUpdateCommentsInsertDateAndOrTime(CCmdUI* pCmdUI)
 {
 	const CFilteredToDoCtrl& tdc = GetToDoCtrl();
 
+	UpdateCommentsFormatCombo();
 	pCmdUI->Enable(tdc.HasFocus(TDCSF_COMMENTS) && tdc.CanPasteDateTime());
 }
 

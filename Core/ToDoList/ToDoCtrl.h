@@ -409,6 +409,10 @@ public:
 	BOOL SetTreeFont(HFONT hFont); // setter responsible for deleting
 	BOOL SetCommentsFont(HFONT hFont); // setter responsible for deleting
 
+	BOOL GetCommentsFormat(CONTENTFORMAT& cf) const { return m_ctrlComments.GetSelectedFormat(cf); }
+	BOOL SetCommentsFormat(const CONTENTFORMAT& cf) { return m_ctrlComments.ChangeSelectedFormat(cf); }
+	BOOL CanChangeCommentsFormat() const;
+
 	const CTDCImageList& GetTaskIconImageList() const;
 
 	int FindTasks(const SEARCHPARAMS& params, CResultArray& aResults) const;
