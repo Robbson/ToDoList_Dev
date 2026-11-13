@@ -164,6 +164,61 @@ LRESULT CUrlRichEditCtrl::OnSetText(WPARAM wp, LPARAM lp)
 
 LRESULT CUrlRichEditCtrl::OnSetFont(WPARAM wp, LPARAM lp)
 {
+	// richedit2.0 sends a EN_CHANGE notification if it contains text when it receives a font change.
+	// to us though this is a bogus change so we prevent a notification being sent
+	//CAutoFlag af(m_bAllowNotify, FALSE);
+
+	// ---
+
+	// Change RichEditTextCtrl to use tabs in size of 2 spaces
+	// -> works now with any set font
+	// -> TODO: Make the tab length configurable by the user
+	// -> TODO: Make it available to the WordPad like rich text control, too
+
+	// The dc we get here has never the right values (also after OnSetFont from super class)
+	// -> So we have to set the font to the dc ourself to get correct values
+	CClientDC dc(this);
+	SelectObject(dc, (HFONT)wp);
+
+	// Debug output only
+	//CSize size = dc.GetTextExtent(L"O", 1);
+	//TRACE(L"%d %d\n",size.cx,size.cy);
+
+	int charWidth = dc.GetTextExtent(L"O", 1).cx; // it's 8 in case of Lucida 10pt
+	int logpixelsx = dc.GetDeviceCaps(LOGPIXELSX);
+	int spaceWidth = (1440/logpixelsx)*charWidth*2;
+
+	// Even when I set all 32 tab stops: After those 32 we get the old tab length again
+	// -> but this is the same with all programs working with MS RichTextEdit control like WinPad32
+	// -> that's one of the reasons why apps like Notepad2 using Scintilla RichText Editor
+	long tabs[MAX_TAB_STOPS];
+	for(int i=0;i<MAX_TAB_STOPS;i++)
+		tabs[i]=spaceWidth*(i)+120; // +120 because of our dxStartIdent which also counts!
+
+	PARAFORMAT2 pf2;
+
+	// NEW: Get the previous structure data first, this is maybe a cleaner solution
+	this->GetParaFormat(pf2);
+
+	pf2.cbSize = sizeof(PARAFORMAT2);
+	pf2.dwMask = PFM_TABSTOPS|PFM_STARTINDENT;
+	pf2.dxStartIndent = 120; // ok, now we have some space on the left side
+	pf2.cTabCount = MAX_TAB_STOPS; // specify in how many elements of the rgxTabs array we have set a tab position
+	//pf2.dySpaceBefore = 120; // does nothing, wird wohl ebensowenig angenommen
+														 // No longer used since 6.8.10 anyway because of introducing doubled line spacing
+
+	// Not supported (only for printing in Word or so)
+	/*
+	pf2.wBorderSpace=60;
+	pf2.wBorderWidth=0; // twips
+	pf2.wBorders=4|64; // top only, we already have it on left bei ident
+	*/
+
+	memcpy(pf2.rgxTabs,tabs,sizeof(tabs));
+	this->SetParaFormat(pf2);
+
+	// ---
+
 	LRESULT lr = CRichEditBaseCtrl::OnSetFont(wp, lp);
 
 	if (!IsAutoUrlDetectionEnabled())
