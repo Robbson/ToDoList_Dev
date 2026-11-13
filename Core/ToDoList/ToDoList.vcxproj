@@ -285,6 +285,7 @@ unicode_release\TDLTest.exe
     <Image Include="res\style_para.bmp" />
     <Image Include="res\style_table.bmp" />
     <Image Include="res\style_wrap.bmp" />
+    <Image Include="res\tab_close_btn.bmp" />
     <Image Include="res\taskattrib_toolbar.bmp" />
     <Image Include="res\taskattrib_toolbar_std.bmp" />
     <Image Include="res\timetrack_goto.ico" />

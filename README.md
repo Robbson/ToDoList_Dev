@@ -1,5 +1,9 @@
 # Better TDL
 
+<p align="center">
+  <img src="docs/images/better-tdl-logo.png" width="160" alt="Better TDL logo">
+</p>
+
 This is an advanced fork of the latest [Abstractspoon ToDoList](https://github.com/abstractspoon/ToDoList_Dev) application for _Windows_.
 
 But why? Well, the original app focuses on a specific working style that has influenced its development direction, especially in recent years. Some decisions have been made that don't work for everyone, and the user has been given no way to choose what's best for them. The new attribute editor in v9 is a good example. It's based on the idea of a _property grid_, which is great for complex applications with tons of properties. But if you only need to edit a few properties, this thing is a big waste of screen space — especially when you're working with a split view that is evenly shared between the task list and the comments editor. _Better TDL_ gives you the option to switch back to the classic attribute editor approach.
@@ -56,7 +60,7 @@ Searching with Quick Find is now more useful, because you can see exactly where 
 Writing structured notes feels natural again.
 
 - Pressing **Enter** keeps the indentation of the current line, so lists and nested notes stay aligned.
-- Bullet lines (`-`, `*`, `+`, `->`, `=>`) continue neatly under the bullet text instead of repeating the marker.
+- Bullet lines (`-`, `->`, `=>`) continue neatly under the bullet text instead of repeating the marker.
 - Word-wrapped lines are visually aligned with the text after the indent, so long paragraphs stay readable.
 
 ### 7. Instant tasklist switching with Ctrl+Tab

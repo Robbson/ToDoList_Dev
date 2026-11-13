@@ -238,5 +238,8 @@
     <Image Include="res\simpletext_menu.bmp">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="res\tab_close_btn.bmp">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>
