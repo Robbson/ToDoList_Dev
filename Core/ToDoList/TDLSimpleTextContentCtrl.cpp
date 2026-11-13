@@ -66,12 +66,22 @@ const long NUM_PREF = sizeof(CF_PREFERRED) / sizeof(CLIPFORMAT);
 
 /////////////////////////////////////////////////////////////////////////////
 
-static CString GetParagraphIndent(const CRichEditBaseCtrl& ctrl, int nPos)
+// Add or remove bullet markers here
+static const LPCTSTR BULLET_PREFIXES[] =
+{
+	_T("- "),
+	//_T("* "),
+	//_T("+ "),
+	_T("-> "),
+	_T("=> "),
+};
+
+/////////////////////////////////////////////////////////////////////////////
+
+static int FindParagraphStart(const CRichEditBaseCtrl& ctrl, int nPos)
 {
 	const int CHUNK = 1024;
-	int nParaStart = 0;
 
-	// find the start of the paragraph containing nPos
 	while (nPos > 0)
 	{
 		int nChunkStart = max(0, nPos - CHUNK);
@@ -81,27 +91,12 @@ static CString GetParagraphIndent(const CRichEditBaseCtrl& ctrl, int nPos)
 		int nBreak = max(sChunk.ReverseFind(_T('\r')), sChunk.ReverseFind(_T('\n')));
 
 		if (nBreak >= 0)
-		{
-			nParaStart = (nChunkStart + nBreak + 1);
-			break;
-		}
+			return (nChunkStart + nBreak + 1);
 
 		nPos = nChunkStart;
 	}
 
-	int nLeadEnd = min((nParaStart + CHUNK), ctrl.GetTextLength());
-	CHARRANGE crLead = { nParaStart, nLeadEnd };
-	CString sLead = ctrl.GetTextRange(crLead), sIndent;
-
-	for (int nChar = 0; nChar < sLead.GetLength(); nChar++)
-	{
-		if ((sLead[nChar] != _T(' ')) && (sLead[nChar] != _T('\t')))
-			break;
-
-		sIndent += sLead[nChar];
-	}
-
-	return sIndent;
+	return 0;
 }
 
 static int FindParagraphEnd(const CRichEditBaseCtrl& ctrl, int nParaStart, int nTextLen)
@@ -124,6 +119,89 @@ static int FindParagraphEnd(const CRichEditBaseCtrl& ctrl, int nParaStart, int n
 	}
 
 	return nTextLen;
+}
+
+static int GetBulletPrefixLength(const CString& sText, int nStart)
+{
+	int nNumPrefixes = _countof(BULLET_PREFIXES);
+
+	for (int nPrefix = 0; nPrefix < nNumPrefixes; nPrefix++)
+	{
+		LPCTSTR szPrefix = BULLET_PREFIXES[nPrefix];
+		int nLen = lstrlen(szPrefix);
+
+		if (((nStart + nLen) <= sText.GetLength()) &&
+			(sText.Mid(nStart, nLen) == szPrefix))
+		{
+			return nLen;
+		}
+	}
+
+	return 0;
+}
+
+static CString GetAutoIndentPrefix(const CRichEditBaseCtrl& ctrl, int nPos)
+{
+	const int CHUNK = 1024;
+	const int nTextLen = ctrl.GetTextLength();
+
+	int nParaStart = FindParagraphStart(ctrl, nPos);
+	int nParaEnd = FindParagraphEnd(ctrl, nParaStart, nTextLen);
+	int nChunkEnd = min((nParaStart + CHUNK), nParaEnd);
+	CHARRANGE crLead = { nParaStart, nChunkEnd };
+	CString sLead = ctrl.GetTextRange(crLead);
+
+	int nIndentLen = 0;
+
+	while ((nIndentLen < sLead.GetLength()) &&
+		   ((sLead[nIndentLen] == _T(' ')) || (sLead[nIndentLen] == _T('\t'))))
+	{
+		nIndentLen++;
+	}
+
+	CString sPrefix = sLead.Left(nIndentLen);
+	int nBulletLen = GetBulletPrefixLength(sLead, nIndentLen);
+
+	if (nBulletLen > 0)
+	{
+		int nTextStart = (nIndentLen + nBulletLen);
+
+		// include any extra spaces/tabs after the marker
+		while ((nTextStart < sLead.GetLength()) &&
+			   ((sLead[nTextStart] == _T(' ')) || (sLead[nTextStart] == _T('\t'))))
+		{
+			nTextStart++;
+		}
+
+		BOOL bHasText = FALSE;
+
+		for (int nChar = nTextStart; nChar < sLead.GetLength(); nChar++)
+		{
+			if ((sLead[nChar] != _T(' ')) && (sLead[nChar] != _T('\t')))
+			{
+				bHasText = TRUE;
+				break;
+			}
+		}
+
+		// if the marker falls before the end of a long paragraph
+		if (!bHasText && (nChunkEnd < nParaEnd))
+			bHasText = TRUE;
+
+		// don't continue an empty bullet
+		if (bHasText)
+		{
+			// Replace the marker and any extra whitespace after it with
+			// spaces so the next line starts under the bullet text.
+			// A tab counts as two spaces, matching the editor's tab stops.
+			for (int nChar = nIndentLen; nChar < nTextStart; nChar++)
+			{
+				sPrefix += ((sLead[nChar] == _T('\t')) ? _T("  ") : _T(" "));
+			}
+		}
+	}
+
+	return sPrefix;
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -381,7 +459,7 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 					CHARRANGE crSel;
 					GetSel(crSel);
 
-					CString sIndent = GetParagraphIndent(*this, crSel.cpMin);
+					CString sIndent = GetAutoIndentPrefix(*this, crSel.cpMin);
 					ReplaceSel((_T("\r\n") + sIndent), TRUE);
 
 					return true;
@@ -658,14 +736,32 @@ bool CTDLSimpleTextContentCtrl::ApplyAutoIndentToParagraph(int nParaStart, int n
 		nFirstNonWs++;
 	}
 
+	int nTextStart = nFirstNonWs;
+	int nBulletLen = GetBulletPrefixLength(sPara, nFirstNonWs);
+
+	if (nBulletLen > 0)
+	{
+		nTextStart += nBulletLen;
+
+		// skip any extra spaces/tabs after the marker
+		while ((nTextStart < sPara.GetLength()) &&
+			   ((sPara[nTextStart] == _T(' ')) || (sPara[nTextStart] == _T('\t'))))
+		{
+			nTextStart++;
+		}
+	}
+	else if (nFirstNonWs == sPara.GetLength())
+	{
+		nTextStart = 0; // whitespace-only paragraph has nothing to align to
+	}
+
 	int nOffset = 0;
 
-	// A whitespace-only paragraph has nothing to align to
-	if ((nFirstNonWs > 0) && (nFirstNonWs < sPara.GetLength()))
+	if ((nTextStart > 0) && (nTextStart < sPara.GetLength()))
 	{
 		CPoint ptPara, ptText;
 		PointFromChar(nParaStart, ptPara);
-		PointFromChar((nParaStart + nFirstNonWs), ptText);
+		PointFromChar((nParaStart + nTextStart), ptText);
 
 		// PointFromChar returns pixels for RichEdit 2.0 and later
 		if ((ptText.y == ptPara.y) && (ptText.x > ptPara.x))
