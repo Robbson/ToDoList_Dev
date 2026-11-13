@@ -44,6 +44,10 @@ static char THIS_FILE[] = __FILE__;
 const UINT WM_SETWORDWRAP = (WM_USER+1);
 const UINT IDC_DROPLIST = 100;
 
+const UINT TIMER_AUTOINDENT = 2;
+const UINT AUTOINDENT_DELAY = 50;
+const int MAX_AUTOINDENT_LENGTH = (1024 * 1024);
+
 const DWORD SIMPLETEXT_COMMENTS = (DWORD)(LPCTSTR)_T("SIMPLETEXT_COMMENTS");
 
 /////////////////////////////////////////////////////////////////////////////
@@ -100,6 +104,28 @@ static CString GetParagraphIndent(const CRichEditBaseCtrl& ctrl, int nPos)
 	return sIndent;
 }
 
+static int FindParagraphEnd(const CRichEditBaseCtrl& ctrl, int nParaStart, int nTextLen)
+{
+	const int CHUNK = 1024;
+	int nPos = nParaStart;
+
+	while (nPos < nTextLen)
+	{
+		int nChunkEnd = min((nPos + CHUNK), nTextLen);
+		CHARRANGE crChunk = { nPos, nChunkEnd };
+
+		CString sChunk = ctrl.GetTextRange(crChunk);
+		int nBreak = sChunk.FindOneOf(_T("\r\n"));
+
+		if (nBreak >= 0)
+			return (nPos + nBreak);
+
+		nPos = nChunkEnd;
+	}
+
+	return nTextLen;
+}
+
 ///////////////////////////////////////////////////////////////////////////
 
 CTDLSimpleTextContentCtrl::CTDLSimpleTextContentCtrl() 
@@ -129,6 +155,9 @@ BEGIN_MESSAGE_MAP(CTDLSimpleTextContentCtrl, CUrlRichEditCtrl)
 	ON_CONTROL_REFLECT_EX(EN_CHANGE, OnChangeText)
 	ON_CONTROL_REFLECT_EX(EN_KILLFOCUS, OnKillFocus)
 	ON_MESSAGE(WM_SETWORDWRAP, OnSetWordWrap)
+	ON_MESSAGE(WM_SETFONT, OnSetFont)
+	ON_MESSAGE(WM_SETTEXT, OnSetText)
+	ON_WM_TIMER()
 	ON_NOTIFY_REFLECT_EX(TTN_NEEDTEXT, OnGetTooltip)
 END_MESSAGE_MAP()
 
@@ -508,6 +537,8 @@ BOOL CTDLSimpleTextContentCtrl::OnChangeText()
 {
 	CUrlRichEditCtrl::OnChangeText();
 
+	ScheduleAutoIndent();
+
 	// If we don't have the focus and inline spell-checking
 	// is enabled then assume that this is probably not a 
 	// user edit so we don't pass it on
@@ -525,6 +556,142 @@ BOOL CTDLSimpleTextContentCtrl::OnKillFocus()
 	GetParent()->SendMessage(WM_ICC_KILLFOCUS);
 	
 	return FALSE; // continue routing
+}
+
+void CTDLSimpleTextContentCtrl::ScheduleAutoIndent()
+{
+	if (GetSafeHwnd())
+		SetTimer(TIMER_AUTOINDENT, AUTOINDENT_DELAY, NULL);
+}
+
+void CTDLSimpleTextContentCtrl::OnTimer(UINT nIDEvent) 
+{
+	if (nIDEvent == TIMER_AUTOINDENT)
+	{
+		KillTimer(TIMER_AUTOINDENT);
+		ApplyAutoIndent();
+		return;
+	}
+
+	CUrlRichEditCtrl::OnTimer(nIDEvent);
+}
+
+LRESULT CTDLSimpleTextContentCtrl::OnSetFont(WPARAM wp, LPARAM lp) 
+{
+	LRESULT lr = CUrlRichEditCtrl::OnSetFont(wp, lp);
+
+	ScheduleAutoIndent();
+
+	return lr;
+}
+
+LRESULT CTDLSimpleTextContentCtrl::OnSetText(WPARAM wp, LPARAM lp) 
+{
+	LRESULT lr = CUrlRichEditCtrl::OnSetText(wp, lp);
+
+	ScheduleAutoIndent();
+
+	return lr;
+}
+
+void CTDLSimpleTextContentCtrl::ApplyAutoIndent()
+{
+	const int nTextLen = GetTextLength();
+
+	if ((nTextLen <= 0) || (nTextLen > MAX_AUTOINDENT_LENGTH))
+		return;
+
+	CHARRANGE crSel;
+	GetSel(crSel);
+
+	const int nFirstLine = GetFirstVisibleLine();
+	const BOOL bVisible = IsWindowVisible();
+
+	CRePauseUndo rep(*this);
+	DWORD dwEventMask = SetEventMask(0);
+
+	if (bVisible)
+		SetRedraw(FALSE);
+
+	CClientDC dc(this);
+	const int nDpiX = dc.GetDeviceCaps(LOGPIXELSX);
+
+	BOOL bChanged = FALSE;
+	int nParaStart = 0;
+
+	while (nParaStart <= nTextLen)
+	{
+		int nParaEnd = FindParagraphEnd(*this, nParaStart, nTextLen);
+
+		if (ApplyAutoIndentToParagraph(nParaStart, nParaEnd, nDpiX))
+			bChanged = TRUE;
+
+		if (nParaEnd >= nTextLen)
+			break;
+
+		nParaStart = (nParaEnd + 1);
+	}
+
+	SetSel(crSel);
+	SetFirstVisibleLine(nFirstLine);
+	SetEventMask(dwEventMask);
+
+	if (bVisible)
+	{
+		SetRedraw(TRUE);
+
+		if (bChanged)
+			Invalidate(FALSE);
+	}
+}
+
+bool CTDLSimpleTextContentCtrl::ApplyAutoIndentToParagraph(int nParaStart, int nParaEnd, int nDpiX)
+{
+	CHARRANGE crPara = { nParaStart, nParaEnd };
+	CString sPara = GetTextRange(crPara);
+
+	int nFirstNonWs = 0;
+
+	while ((nFirstNonWs < sPara.GetLength()) &&
+		   ((sPara[nFirstNonWs] == _T(' ')) || (sPara[nFirstNonWs] == _T('\t'))))
+	{
+		nFirstNonWs++;
+	}
+
+	int nOffset = 0;
+
+	// A whitespace-only paragraph has nothing to align to
+	if ((nFirstNonWs > 0) && (nFirstNonWs < sPara.GetLength()))
+	{
+		CPoint ptPara, ptText;
+		PointFromChar(nParaStart, ptPara);
+		PointFromChar((nParaStart + nFirstNonWs), ptText);
+
+		// PointFromChar returns pixels for RichEdit 2.0 and later
+		if ((ptText.y == ptPara.y) && (ptText.x > ptPara.x))
+			nOffset = MulDiv((ptText.x - ptPara.x), 1440, nDpiX);
+	}
+
+	SetSel(nParaStart, nParaStart);
+
+	PARAFORMAT2 pf;
+	ZeroMemory(&pf, sizeof(pf));
+	pf.cbSize = sizeof(pf);
+
+	GetParaFormat(pf);
+
+	if ((pf.dwMask & PFM_OFFSET) && (pf.dxOffset == nOffset))
+		return false;
+
+	PARAFORMAT2 pfNew;
+	ZeroMemory(&pfNew, sizeof(pfNew));
+	pfNew.cbSize = sizeof(pfNew);
+	pfNew.dwMask = PFM_OFFSET;
+	pfNew.dxOffset = nOffset;
+
+	::SendMessage(GetSafeHwnd(), EM_SETPARAFORMAT, 0, (LPARAM)&pfNew);
+
+	return true;
 }
 
 void CTDLSimpleTextContentCtrl::OnContextMenu(CWnd* pWnd, CPoint point) 

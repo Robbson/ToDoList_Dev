@@ -77,6 +77,9 @@ protected:
 	afx_msg BOOL OnGetTooltip(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg UINT OnGetDlgCode();
 	afx_msg LRESULT OnSetWordWrap(WPARAM wp, LPARAM lp);
+	afx_msg void OnTimer(UINT nIDEvent);
+	afx_msg LRESULT OnSetFont(WPARAM wp, LPARAM lp);
+	afx_msg LRESULT OnSetText(WPARAM wp, LPARAM lp);
 
 	DECLARE_MESSAGE_MAP()
 
@@ -91,6 +94,9 @@ protected:
 	BOOL Paste();
 	BOOL CanPaste();
 	void InitMenuIconManager();
+	void ScheduleAutoIndent();
+	void ApplyAutoIndent();
+	bool ApplyAutoIndentToParagraph(int nParaStart, int nParaEnd, int nDpiX);
 
 };
 

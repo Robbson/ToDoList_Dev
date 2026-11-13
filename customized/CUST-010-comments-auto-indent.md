@@ -1,13 +1,17 @@
-# CUST-010: Auto-indent on Return in the comments editor
+# CUST-010: Auto-indent in the comments editor
 
 Status: **In progress** (implemented and built; manual typing test pending)
 
 ## Goal
 
 Pressing a plain `Enter` in the plain-text comments editor starts the new line with the
-same leading whitespace (spaces and tabs) as the current line. This restores a behaviour
-that used to be implemented as a hack in the older comments control's
-`ProcessMessage(MSG*)`.
+same leading whitespace (spaces and tabs) as the current line. In addition, word-wrapped
+continuation lines are visually aligned with the first non-whitespace character of their
+paragraph, so indentation remains readable when a long line wraps.
+
+The `Enter` behaviour restores a feature that used to be implemented as a hack in the
+older comments control's `ProcessMessage(MSG*)`. The wrapped-line alignment is purely
+visual; the underlying text is unchanged.
 
 ## Upstream starting point
 
@@ -18,7 +22,8 @@ including `VK_TAB`. `CUrlRichEditCtrl` itself has no auto-indent behaviour.
 
 ## What changed
 
-Files: `Core/ToDoList/TDLSimpleTextContentCtrl.cpp`.
+Files: `Core/ToDoList/TDLSimpleTextContentCtrl.cpp` and
+`Core/ToDoList/TDLSimpleTextContentCtrl.h`.
 
 1. A file-local `GetParagraphIndent()` helper finds the start of the paragraph
    containing the caret by scanning backwards for the previous `\r`/`\n` in chunks. It
@@ -28,8 +33,18 @@ Files: `Core/ToDoList/TDLSimpleTextContentCtrl.cpp`.
 2. `ProcessMessage()` handles `WM_KEYDOWN`/`VK_RETURN` when no Ctrl, Alt or Shift is
    held. It inserts `"\r\n"` followed by the indent with `ReplaceSel()` and returns
    `true` so the control does not process the key itself.
-
-Shift+Enter, Ctrl+Enter and Alt+Enter keep their existing behaviour.
+3. `ApplyAutoIndent()` walks each paragraph and sets the RichEdit hanging indent
+   (`PARAFORMAT2.dxOffset` / `PFM_OFFSET`) to the measured width of the paragraph's
+   leading whitespace. Wrapped lines therefore start where the paragraph's text starts.
+   The width is measured with `PointFromChar()` and converted from pixels to twips, so
+   spaces, tabs, proportional fonts and the control's custom tab stops are handled by
+   RichEdit itself.
+4. Formatting runs from a short `TIMER_AUTOINDENT` (50 ms) timer after `EN_CHANGE`,
+   `WM_SETTEXT` and `WM_SETFONT`, so it is coalesced while typing and re-applied after a
+   font or content change. `EM_SETPARAFORMAT` is sent directly rather than through
+   `CRichEditBaseCtrl::SetParaFormat()` to avoid that helper's synthetic `EN_CHANGE`.
+   The operation is wrapped in `CRePauseUndo` so the visual formatting does not create
+   undo entries, and the selection/first visible line are restored.
 
 ## Risks
 
@@ -40,10 +55,20 @@ Shift+Enter, Ctrl+Enter and Alt+Enter keep their existing behaviour.
   1024 characters, which is well beyond realistic comment indentation.
 - Overriding `WM_KEYDOWN` means an `Enter` used to commit an IME composition is handled
   as a normal newline; this matches the previous hack.
+- The wrapped-line indent is visual only: `GetWindowText()` is still the content that is
+  saved, so no spaces are added to the stored comments and paragraph formatting is lost
+  when the text is re-loaded and then re-applied.
+- Auto-indent is skipped for comments larger than 1 MB to avoid walking very large
+  documents on every edit.
+- The paragraph-format pass temporarily moves the caret to each paragraph. Selection and
+  the first visible line are restored, but a horizontal scroll position is not explicitly
+  restored (word wrap normally makes that irrelevant).
+- Shift+Enter, Ctrl+Enter and Alt+Enter keep their existing behaviour.
 
 ## Verification
 
 - `Core/ToDoListLib/ToDoListLib.vcxproj` builds successfully in `Unicode Debug`.
 - Manual verification pending: type an indented line in the comments editor and press
-  Enter; the caret should stay at the same indent. Deeper lines, tab indents, wrapped
-  lines and Shift+Enter should also be checked.
+  Enter; the caret should stay at the same indent and wrapped lines should align with the
+  text after the indent. Deeper lines, tab indents, wrapped lines, font changes, paste,
+  undo/redo and Shift+Enter should also be checked.
