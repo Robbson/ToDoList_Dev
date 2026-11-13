@@ -53,6 +53,8 @@ protected:
 	CHARRANGE m_crDropSel;
 	LPDATAOBJECT m_lpDragObject;
 	URE_LINKHANDLING m_nLinkHandling;
+	BOOL m_bHideMouseCursor;
+	CPoint m_ptHideMouseCursor;
 
 protected:
 	virtual int OnToolHitTest(CPoint pt, TOOLINFO* pTI) const;
@@ -61,6 +63,7 @@ protected:
 	
 protected:
 	afx_msg BOOL OnChangeText();
+	afx_msg void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
 	afx_msg void OnRButtonUp(UINT nHitTest, CPoint point);
 	afx_msg void OnKeyUp(UINT nChar, UINT nRepCnt, UINT nFlags);
 	afx_msg void OnRButtonDown(UINT nFlags, CPoint point);
@@ -96,6 +99,7 @@ protected:
 	BOOL SelectionContainsMessagePos() const;
 	BOOL SelectionContainsPos(const CPoint& ptClient) const;
 	BOOL UrlsMatch(const CUrlArray& aUrls) const;
+	void HideMouseCursor();
 
 };
 
