@@ -1,62 +1,69 @@
-# CUST-008: Hide the mouse pointer while typing in the comments editors
+# CUST-008: Hide the mouse pointer while typing in text controls
 
 Status: **Done**
 
 ## Goal
 
-Restore the old comments-editor behaviour: while typing, the mouse pointer disappears and
-only reappears when the mouse is next moved. The current build left the I-beam cursor
-visible and flickering while text was typed, in both the simple-text and rich-text
-comments editors.
+Restore the old application behaviour: while typing, the mouse pointer disappears and
+only reappears when the mouse is next moved. This should apply regardless of where the
+pointer happens to be (over the editor, the toolbar or the frame), as it does in the
+standard Search/Tags/Title edit fields.
 
-## Upstream starting point
+## Why the standard fields differ
 
-Standard Windows `EDIT` controls implement the "Hide pointer while typing" mouse option
-internally. The comments editors are custom RichEdit controls instead:
+The Search, File link, Tags, Category and Title fields are standard Windows `EDIT`
+controls. Windows implements the "Hide pointer while typing" mouse option inside the
+common edit control, so those fields work automatically.
 
-- simple text: `CTDLSimpleTextContentCtrl` derives from `CUrlRichEditCtrl`;
-- rich text: `CRulerRichEdit` (RTFContentCtrl plugin) derives from `CUrlRichEditCtrl`.
+The comments editors are custom RichEdit controls:
 
-`CUrlRichEditCtrl` let the RichEdit class restore the I-beam cursor on every
-`WM_SETCURSOR`, and the URL link handling could call `SetCursor()` directly. That kept
-re-showing the pointer during typing, which the OS "hide pointer while typing" feature
-then hid again, producing the visible flicker.
+- simple text: `CTDLSimpleTextContentCtrl`;
+- rich text: `CRulerRichEdit` in the RTFContentCtrl plugin.
+
+RichEdit does not implement the mouse-vanish option and re-sets the I-beam cursor on
+`WM_SETCURSOR` (and the URL link handler can call `SetCursor()` directly). Hiding the
+pointer inside the RichEdit control only worked while the pointer was over that control;
+as soon as it was over the toolbar or frame, those windows' `WM_SETCURSOR` handlers showed
+it again, producing the flicker.
 
 ## What changed
 
-Files: `Core/Shared/UrlRichEditCtrl.h/.cpp`.
+File: `Core/ToDoList/ToDoListWnd.h/.cpp` (the earlier `CUrlRichEditCtrl` attempt was
+reverted).
 
-1. Added `m_bHideMouseCursor` and `HideMouseCursor()`, which records the current cursor
-   position and calls `::SetCursor(NULL)`.
-2. `OnKeyDown()`, the existing `OnKeyUp()`, and `OnChangeText()` (when the control has
-   focus) call `HideMouseCursor()`.
-3. `OnSetCursor()` checks the flag first and, while it is set, calls `::SetCursor(NULL)`
-   and returns `TRUE`, so neither the RichEdit class cursor nor the link notification
-   can restore the I-beam.
-4. `OnMouseMove()` ignores movements of up to 2 pixels (hand jitter while typing). Once
-   the pointer really moves it clears the flag and explicitly restores the I-beam; normal
-   `WM_SETCURSOR` handling then takes over again (including link cursors).
+1. `PreTranslateMessage()` watches all queued messages for the application. On
+   `WM_CHAR`, Backspace, Delete or Return it checks whether the target is an edit control
+   (`CWinClasses::IsEditControl`) and calls `HideMouseCursorWhileTyping()`.
+2. `HideMouseCursorWhileTyping()` records the cursor position and drives
+   `ShowCursor(FALSE)` until the display counter is negative, hiding the pointer globally
+   regardless of which window is underneath. It starts `TIMER_HIDEMOUSECURSOR`.
+3. The timer (50 ms) and any `WM_MOUSEMOVE` call `RestoreMouseCursorIfMoved()`. Once the
+   pointer has moved more than 2 pixels it drives `ShowCursor(TRUE)` until the counter is
+   non-negative and stops the timer, so the normal cursor shape is restored by the usual
+   `WM_SETCURSOR` handling.
+4. `OnDestroy()` force-restores the cursor so the desktop cannot be left without a
+   pointer.
 
-Because the change is in the shared base class, both the simple-text and rich-text
-comments editors behave the same way.
+The 2-pixel threshold ignores hand jitter while typing; a deliberate mouse movement
+reveals the pointer immediately (timer latency at most 50 ms, usually the same message
+cycle via `WM_MOUSEMOVE`).
 
 ## Risks
 
-- The pointer is hidden globally (not just over the editor) until the next significant
-  mouse move, so keyboard-only users will not see it until they move the mouse.
-- A deliberate mouse movement of only 1-2 pixels will not reveal the pointer; any larger
-  movement will.
-- Other `CUrlRichEditCtrl` subclasses (currently only the two comments editors) inherit
-  the same behaviour.
+- `ShowCursor` uses a process-wide display counter. The code balances it on restore and
+  on window destruction, but other code that calls `ShowCursor` at the same time could
+  interact with it.
+- Typing in any edit control in the application (including dialogs) hides the pointer,
+  which matches the standard-edit behaviour.
+- If the application is terminated abnormally while the pointer is hidden, the display
+  counter is reset when the process ends.
 
 ## Verification
 
-- `Unicode Debug` builds successfully (`Shared`, `ToDoListLib`, `ToDoList` and
-  `RTFContentCtrl`).
-- Automated cursor check with the pointer over each editor:
-  - simple text: showing -> hidden after a key -> showing after a 20-pixel move;
-  - rich text (after switching the comments format): showing -> hidden after a key ->
-    showing after a 20-pixel move.
-- Both cases reported `GetCursorInfo()` handle `0` while hidden and the I-beam handle
-  again after moving.
+- `Unicode Debug` builds successfully (`Shared`, `RTFContentCtrl`, `ToDoListLib`,
+  `ToDoList`).
+- With the pointer deliberately placed over the **main toolbar**:
+  - simple-text comments: showing before typing, `GetCursorInfo` handle `0` while
+    typing, showing again after a 20-pixel mouse move;
+  - rich-text comments: the same result after switching the comments format.
 - No assertions logged during startup, typing or mouse movement.

@@ -181,6 +181,7 @@ enum
 	TIMER_DUEITEMS,
 	TIMER_TIMETRACKING,
 	TIMER_AUTOMINIMIZE,
+	TIMER_HIDEMOUSECURSOR,
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -363,6 +364,7 @@ CToDoListWnd::CToDoListWnd()
 	m_bQueryOpenAllow(FALSE),
 	m_bPasswordPrompting(TRUE),
 	m_bShowingMainToolbar(TRUE),
+	m_bMouseCursorHidden(FALSE),
 	m_bShowingCustomToolbar(TRUE),
 	m_bReloading(FALSE),
 	m_hwndLastFocus(NULL),
@@ -1190,6 +1192,7 @@ int CToDoListWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
 void CToDoListWnd::OnDestroy()
 {
+	RestoreMouseCursorIfMoved(TRUE);
 	m_wndSessionStatus.DestroyWindow();
 
 	CFrameWnd::OnDestroy();
@@ -2040,6 +2043,19 @@ BOOL CToDoListWnd::PreTranslateMessage(MSG* pMsg)
 		{
 			DoExit();
 			return TRUE;
+		}
+
+		// Hide the mouse pointer while typing into any editable control
+		if ((pMsg->message == WM_CHAR) ||
+			((pMsg->message == WM_KEYDOWN) &&
+			 ((pMsg->wParam == VK_BACK) || (pMsg->wParam == VK_DELETE) || (pMsg->wParam == VK_RETURN))))
+		{
+			if (CWinClasses::IsEditControl(pMsg->hwnd))
+				HideMouseCursorWhileTyping();
+		}
+		else if (pMsg->message == WM_MOUSEMOVE)
+		{
+			RestoreMouseCursorIfMoved();
 		}
 
 		BOOL bKeyPress = ((pMsg->message == WM_KEYDOWN) || 
@@ -7228,6 +7244,42 @@ void CToDoListWnd::KillTimers()
 	SetTimer(TIMER_AUTOMINIMIZE, FALSE);
 }
 
+void CToDoListWnd::HideMouseCursorWhileTyping()
+{
+	if (m_bMouseCursorHidden)
+		return;
+
+	::GetCursorPos(&m_ptMouseCursorHidden);
+
+	while (::ShowCursor(FALSE) >= 0)
+		;
+
+	m_bMouseCursorHidden = TRUE;
+	CFrameWnd::SetTimer(TIMER_HIDEMOUSECURSOR, 50, NULL);
+}
+
+void CToDoListWnd::RestoreMouseCursorIfMoved(BOOL bForce)
+{
+	if (!m_bMouseCursorHidden)
+		return;
+
+	CPoint ptCursor;
+	::GetCursorPos(&ptCursor);
+
+	if (!bForce &&
+		(abs(ptCursor.x - m_ptMouseCursorHidden.x) <= 2) &&
+		(abs(ptCursor.y - m_ptMouseCursorHidden.y) <= 2))
+	{
+		return;
+	}
+
+	while (::ShowCursor(TRUE) < 0)
+		;
+
+	m_bMouseCursorHidden = FALSE;
+	CFrameWnd::KillTimer(TIMER_HIDEMOUSECURSOR);
+}
+
 void CToDoListWnd::RestoreTimers()
 {
 	const CPreferencesDlg& prefs = Prefs();
@@ -7292,6 +7344,12 @@ void CToDoListWnd::SetTimer(UINT nTimerID, BOOL bOn)
 void CToDoListWnd::OnTimer(UINT nIDEvent) 
 {
 	CFrameWnd::OnTimer(nIDEvent);
+
+	if (nIDEvent == TIMER_HIDEMOUSECURSOR)
+	{
+		RestoreMouseCursorIfMoved();
+		return;
+	}
 	
 	// if we are disabled (== modal dialog visible) then do not respond
 	if (!IsWindowEnabled())

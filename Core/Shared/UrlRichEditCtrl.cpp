@@ -36,8 +36,7 @@ const UINT PAUSE = 1000; // 1 second
 CUrlRichEditCtrl::CUrlRichEditCtrl(URE_LINKHANDLING nLinkHandling, UINT nIDInstructionMsg)
 	: 
 	m_nLinkHandling(nLinkHandling),
-	m_lpDragObject(NULL),
-	m_bHideMouseCursor(FALSE)
+	m_lpDragObject(NULL)
 {
 	if (nIDInstructionMsg)
 		m_sLinkInstruction = CEnString(nIDInstructionMsg);
@@ -49,7 +48,6 @@ CUrlRichEditCtrl::~CUrlRichEditCtrl()
 
 BEGIN_MESSAGE_MAP(CUrlRichEditCtrl, CRichEditBaseCtrl)
 	ON_WM_RBUTTONUP()
-	ON_WM_KEYDOWN()
 	ON_WM_KEYUP()
 	ON_WM_RBUTTONDOWN()
 	ON_WM_SHOWWINDOW()
@@ -75,9 +73,6 @@ int CUrlRichEditCtrl::AddProtocol(LPCTSTR szProtocol, BOOL bWantNotify)
 
 BOOL CUrlRichEditCtrl::OnChangeText() 
 {
-	if (GetFocus() == this)
-		HideMouseCursor();
-
 	if (!IsAutoUrlDetectionEnabled())
 	{
 		// kill any existing timer
@@ -702,13 +697,6 @@ void CUrlRichEditCtrl::PathReplaceSel(LPCTSTR lpszPath, BOOL bFile)
 	SetFocus();
 }
 
-void CUrlRichEditCtrl::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
-{
-	CRichEditBaseCtrl::OnKeyDown(nChar, nRepCnt, nFlags);
-
-	HideMouseCursor();
-}
-
 void CUrlRichEditCtrl::OnKeyUp(UINT nChar, UINT nRepCnt, UINT nFlags) 
 {
 	if (nChar == VK_APPS)
@@ -726,15 +714,6 @@ void CUrlRichEditCtrl::OnKeyUp(UINT nChar, UINT nRepCnt, UINT nFlags)
 	}
 	
 	CRichEditBaseCtrl::OnKeyUp(nChar, nRepCnt, nFlags);
-
-	HideMouseCursor();
-}
-
-void CUrlRichEditCtrl::HideMouseCursor()
-{
-	m_bHideMouseCursor = TRUE;
-	::GetCursorPos(&m_ptHideMouseCursor);
-	::SetCursor(NULL);
 }
 
 void CUrlRichEditCtrl::OnSysKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags) 
@@ -797,12 +776,6 @@ void CUrlRichEditCtrl::OnContextMenu(CWnd* /*pWnd*/, CPoint point)
 
 BOOL CUrlRichEditCtrl::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
 {
-	if (m_bHideMouseCursor)
-	{
-		::SetCursor(NULL);
-		return TRUE;
-	}
-
 	// OnNotifyLink will update
 	if (!Misc::IsKeyPressed(VK_LBUTTON) && !Misc::IsKeyPressed(VK_RBUTTON))
 		m_sContextUrl.Empty();
@@ -812,20 +785,6 @@ BOOL CUrlRichEditCtrl::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
 
 void CUrlRichEditCtrl::OnMouseMove(UINT nFlags, CPoint point)
 {
-	// Only reveal the cursor once it has really moved, not for
-	// tiny movements whilst typing
-	if (m_bHideMouseCursor)
-	{
-		CPoint ptCursor(GetMessagePos());
-
-		if ((abs(ptCursor.x - m_ptHideMouseCursor.x) > 2) ||
-			(abs(ptCursor.y - m_ptHideMouseCursor.y) > 2))
-		{
-			m_bHideMouseCursor = FALSE;
-			::SetCursor(::LoadCursor(NULL, IDC_IBEAM));
-		}
-	}
-
 	// OnNotifyLink will update
 	if (!Misc::IsKeyPressed(VK_LBUTTON) && !Misc::IsKeyPressed(VK_RBUTTON))
 		m_sContextUrl.Empty();

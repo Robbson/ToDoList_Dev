@@ -212,6 +212,8 @@ protected:
 	BOOL m_bShowTreeListBar;
 	BOOL m_bShowingCustomToolbar;
 	BOOL m_bShowingMainToolbar;
+	BOOL m_bMouseCursorHidden;
+	CPoint m_ptMouseCursorHidden;
 	BOOL m_bSplitting;
 	BOOL m_bStartHidden;
 	BOOL m_bVisible;
@@ -736,6 +738,8 @@ protected:
 	void CopySelectedTasksToClipboard(TDC_TASKS2CLIPBOARD nAsFormat);
 	void InitUITheme();
 	void ProcessQuickFindTextChange(BOOL bComboSelChange);
+	void HideMouseCursorWhileTyping();
+	void RestoreMouseCursorIfMoved(BOOL bForce = FALSE);
 	BOOL GetAutoArchiveOptions(TDC_ARCHIVE& nRemove, BOOL& bRemoveFlagged) const;
 	BOOL ValidateTaskLinkFilePath(CString& sPath) const;
 	BOOL WantCheckRemoteFiles(int nCtrl, int nInterval, int& nElapsed) const;
