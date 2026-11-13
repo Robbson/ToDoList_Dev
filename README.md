@@ -1,7 +1,5 @@
-# Better TDL
-
 <p align="center">
-  <img src="docs/images/better-tdl-logo.png" width="160" alt="Better TDL logo">
+  <img src="docs/images/better-tdl-title.svg" width="560" alt="Better TDL">
 </p>
 
 This is an advanced fork of the latest [Abstractspoon ToDoList](https://github.com/abstractspoon/ToDoList_Dev) application for _Windows_.

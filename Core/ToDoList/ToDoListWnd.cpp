@@ -5318,9 +5318,12 @@ LRESULT CToDoListWnd::OnExportThreadFinished(WPARAM wp, LPARAM lp)
 
 CString CToDoListWnd::GetTitle(BOOL bExtended)
 {
-	CString sTitle;
+	CString sTitle = FileMisc::GetAppProductName();
 
-	sTitle.Format(_T("ToDoList %s"), GetVersion(bExtended));
+	if (sTitle.IsEmpty())
+		sTitle = _T("ToDoList");
+
+	sTitle += _T(" ") + GetVersion(bExtended);
 	CLocalizer::IgnoreString(sTitle);
 
 	return sTitle;
@@ -5386,7 +5389,12 @@ CString CToDoListWnd::GetVersion(BOOL bExtended)
 				sVersion.Format(_T("%d.%d.%s%d"), nMajorVer, nMinorVer, sShortStr, aVer[3]);
 			}
 
-			sExtVersion.Format(_T("%s (%s)"), sVersion, CEnString(nExtendedStr));
+			CString sRelease = FileMisc::GetAppSpecialBuild();
+
+			if (sRelease.IsEmpty())
+				sRelease = CEnString(nExtendedStr);
+
+			sExtVersion.Format(_T("%s (%s)"), sVersion, sRelease);
 		}
 
 		CLocalizer::IgnoreString(sVersion);

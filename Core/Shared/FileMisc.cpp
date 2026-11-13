@@ -2268,6 +2268,26 @@ CString FileMisc::GetAppVersion(TCHAR cSep)
 	return GetModuleVersion((HMODULE)NULL, cSep);
 }
 
+CString FileMisc::GetAppProductName()
+{
+	CFileVersionInfo fvi;
+
+	if (fvi.Create())
+		return fvi.GetProductName();
+
+	return CString();
+}
+
+CString FileMisc::GetAppSpecialBuild()
+{
+	CFileVersionInfo fvi;
+
+	if (fvi.Create())
+		return fvi.GetSpecialBuild();
+
+	return CString();
+}
+
 BOOL FileMisc::GetAppVersion(CDWordArray& aVersionParts)
 {
 	return GetModuleVersion((HMODULE)NULL, aVersionParts);
