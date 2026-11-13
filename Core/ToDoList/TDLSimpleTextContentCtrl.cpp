@@ -62,6 +62,46 @@ const long NUM_PREF = sizeof(CF_PREFERRED) / sizeof(CLIPFORMAT);
 
 /////////////////////////////////////////////////////////////////////////////
 
+static CString GetParagraphIndent(const CRichEditBaseCtrl& ctrl, int nPos)
+{
+	const int CHUNK = 1024;
+	int nParaStart = 0;
+
+	// find the start of the paragraph containing nPos
+	while (nPos > 0)
+	{
+		int nChunkStart = max(0, nPos - CHUNK);
+		CHARRANGE cr = { nChunkStart, nPos };
+
+		CString sChunk = ctrl.GetTextRange(cr);
+		int nBreak = max(sChunk.ReverseFind(_T('\r')), sChunk.ReverseFind(_T('\n')));
+
+		if (nBreak >= 0)
+		{
+			nParaStart = (nChunkStart + nBreak + 1);
+			break;
+		}
+
+		nPos = nChunkStart;
+	}
+
+	int nLeadEnd = min((nParaStart + CHUNK), ctrl.GetTextLength());
+	CHARRANGE crLead = { nParaStart, nLeadEnd };
+	CString sLead = ctrl.GetTextRange(crLead), sIndent;
+
+	for (int nChar = 0; nChar < sLead.GetLength(); nChar++)
+	{
+		if ((sLead[nChar] != _T(' ')) && (sLead[nChar] != _T('\t')))
+			break;
+
+		sIndent += sLead[nChar];
+	}
+
+	return sIndent;
+}
+
+///////////////////////////////////////////////////////////////////////////
+
 CTDLSimpleTextContentCtrl::CTDLSimpleTextContentCtrl() 
 	: 
 	CUrlRichEditCtrl(CTRLCLICKTOFOLLOW, IDS_CTRLCLICKTOFOLLOWLINK),
@@ -300,6 +340,20 @@ bool CTDLSimpleTextContentCtrl::ProcessMessage(MSG* pMsg)
 						ReplaceSel(sSel, TRUE);
 						SetSel(cr);
 					}
+
+					return true;
+				}
+				break;
+
+			case VK_RETURN:
+				// auto-indent a plain <return> to match the current line
+				if (!bCtrl && !bAlt && !bShift)
+				{
+					CHARRANGE crSel;
+					GetSel(crSel);
+
+					CString sIndent = GetParagraphIndent(*this, crSel.cpMin);
+					ReplaceSel((_T("\r\n") + sIndent), TRUE);
 
 					return true;
 				}
