@@ -53,3 +53,4 @@ customized/
 | CUST-008 | Hide mouse pointer while typing in text controls | Done | [CUST-008-comments-hide-pointer-while-typing.md](CUST-008-comments-hide-pointer-while-typing.md) |
 | CUST-009 | Highlight Quick Find matches in the comments editor | Done | [CUST-009-quickfind-comments-highlight.md](CUST-009-quickfind-comments-highlight.md) |
 | CUST-010 | Auto-indent (Return and wrapped lines) in the comments editor | In progress (implemented/built; manual test pending) | [CUST-010-comments-auto-indent.md](CUST-010-comments-auto-indent.md) |
+| CUST-011 | IntelliJ-style MRU tasklist switcher for Ctrl+Tab | In progress (implemented/built; manual test pending) | [CUST-011-mru-tasklist-switcher.md](CUST-011-mru-tasklist-switcher.md) |

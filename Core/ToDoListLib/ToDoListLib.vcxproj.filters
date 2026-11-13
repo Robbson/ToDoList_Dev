@@ -326,6 +326,9 @@
     <ClCompile Include="..\ToDoList\TDLTasklistSaveAsDlg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\ToDoList\TDLTasklistSwitcher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\ToDoList\TDLTasklistStorageMgr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -827,6 +830,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ToDoList\TDLTasklistSaveAsDlg.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\ToDoList\TDLTasklistSwitcher.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\ToDoList\TDLTasklistStorageMgr.h">

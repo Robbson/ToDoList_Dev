@@ -178,6 +178,7 @@ protected:
 	CTDCShortcutManager m_mgrShortcuts;
 	CTDLTasklistStorageMgr m_mgrStorage;
 	CToDoCtrlMgr m_mgrToDoCtrls;
+	CArray<CFilteredToDoCtrl*, CFilteredToDoCtrl*> m_aMRUToDoCtrls;
 	CUIExtensionMgr m_mgrUIExtensions;
 	CWndPromptManager m_mgrPrompts;
 
@@ -840,6 +841,9 @@ protected:
 	BOOL SelectToDoCtrl(LPCTSTR szFilePath, BOOL bCheckPassword, int nNotifyDueTasksBy = -1);
 	BOOL SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDueTasksBy = -1, BOOL bNotifyError = TRUE);
 	int GetSelToDoCtrl() const;
+	void ShowTasklistSwitcher();
+	void RefreshMRUToDoCtrls();
+	void PromoteToDoCtrlInMRU(const CFilteredToDoCtrl* pTDC);
 	BOOL CreateNewTaskList(BOOL bAddDefTask, BOOL bByUser);
 	BOOL WillRestoreLastSession() const;
 	BOOL VerifyToDoCtrlPassword() const;

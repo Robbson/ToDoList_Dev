@@ -38,6 +38,7 @@
 #include "tdlsetreminderdlg.h"
 #include "tdlshowreminderdlg.h"
 #include "TDLTasklistSaveAsDlg.h"
+#include "TDLTasklistSwitcher.h"
 #include "tdlToolsUserInputDlg.h"
 #include "tdltransformdialog.h"
 #include "tdlwelcomewizard.h"
@@ -1954,7 +1955,7 @@ BOOL CToDoListWnd::HandleEscapeTabReturn(MSG* pMsg)
 				break;
 				
 			case VK_TAB: // tabbing away from Quick Find -> tasks
-				if (::IsChild(m_cbQuickFind, pMsg->hwnd))
+				if (!Misc::IsKeyPressed(VK_CONTROL) && ::IsChild(m_cbQuickFind, pMsg->hwnd))
 				{
 					GetToDoCtrl().SetFocus(TDCSF_TASKVIEW);
 					return TRUE;
@@ -8835,6 +8836,8 @@ void CToDoListWnd::OnTabCtrlSelchange(NMHDR* /*pNMHDR*/, LRESULT* pResult)
 		DoDueTaskNotification(nCurSel, nDueBy);
 
 		UpdateAeroFeatures();
+
+		PromoteToDoCtrlInMRU(&tdcShow);
 	}
 
 	m_idleTasks.UpdateCaption();
@@ -9215,6 +9218,140 @@ int CToDoListWnd::GetSelToDoCtrl() const
 		return -1;
 }
 
+void CToDoListWnd::RefreshMRUToDoCtrls()
+{
+	CArray<CFilteredToDoCtrl*, CFilteredToDoCtrl*> aOld;
+	aOld.Copy(m_aMRUToDoCtrls);
+
+	m_aMRUToDoCtrls.RemoveAll();
+
+	// keep the existing order for tasklists that are still open
+	for (int nMRU = 0; nMRU < aOld.GetSize(); nMRU++)
+	{
+		for (int nTDC = 0; nTDC < GetTDCCount(); nTDC++)
+		{
+			if (&GetToDoCtrl(nTDC) == aOld[nMRU])
+			{
+				m_aMRUToDoCtrls.Add(aOld[nMRU]);
+				break;
+			}
+		}
+	}
+
+	// append any tasklists not yet tracked
+	for (int nTDC = 0; nTDC < GetTDCCount(); nTDC++)
+	{
+		CFilteredToDoCtrl* pTDC = &GetToDoCtrl(nTDC);
+		BOOL bFound = FALSE;
+
+		for (int nMRU = 0; nMRU < m_aMRUToDoCtrls.GetSize(); nMRU++)
+		{
+			if (m_aMRUToDoCtrls[nMRU] == pTDC)
+			{
+				bFound = TRUE;
+				break;
+			}
+		}
+
+		if (!bFound)
+			m_aMRUToDoCtrls.Add(pTDC);
+	}
+}
+
+void CToDoListWnd::PromoteToDoCtrlInMRU(const CFilteredToDoCtrl* pTDC)
+{
+	if (!pTDC)
+		return;
+
+	RefreshMRUToDoCtrls();
+
+	for (int nMRU = 0; nMRU < m_aMRUToDoCtrls.GetSize(); nMRU++)
+	{
+		if (m_aMRUToDoCtrls[nMRU] == pTDC)
+		{
+			m_aMRUToDoCtrls.RemoveAt(nMRU);
+			break;
+		}
+	}
+
+	m_aMRUToDoCtrls.InsertAt(0, const_cast<CFilteredToDoCtrl*>(pTDC));
+}
+
+void CToDoListWnd::ShowTasklistSwitcher()
+{
+	AF_NOREENTRANT // macro helper
+
+	if (GetTDCCount() < 2)
+		return;
+
+	int nCurSel = GetSelToDoCtrl();
+
+	if (nCurSel >= 0)
+		PromoteToDoCtrlInMRU(&GetToDoCtrl(nCurSel));
+
+	CArray<int, int> aOrder;
+
+	for (int nMRU = 0; nMRU < m_aMRUToDoCtrls.GetSize(); nMRU++)
+	{
+		for (int nTDC = 0; nTDC < GetTDCCount(); nTDC++)
+		{
+			if (&GetToDoCtrl(nTDC) == m_aMRUToDoCtrls[nMRU])
+			{
+				aOrder.Add(nTDC);
+				break;
+			}
+		}
+	}
+
+	if (aOrder.GetSize() < 2)
+		return;
+
+	CStringArray aItems;
+	CArray<int, int> aStates;
+
+	for (int nOrder = 0; nOrder < aOrder.GetSize(); nOrder++)
+	{
+		int nTDC = aOrder[nOrder];
+		int nState = CTDLTasklistSwitcher::ITEM_NORMAL;
+
+		if (!m_mgrToDoCtrls.IsLoaded(nTDC))
+		{
+			nState = CTDLTasklistSwitcher::ITEM_NOTLOADED;
+		}
+		else if (m_mgrToDoCtrls.IsModified(nTDC) && !m_mgrToDoCtrls.GetReadOnlyStatus(nTDC))
+		{
+			nState = CTDLTasklistSwitcher::ITEM_MODIFIED;
+		}
+
+		aItems.Add(m_mgrToDoCtrls.GetTabItemText(nTDC));
+		aStates.Add(nState);
+	}
+
+	CTDLTasklistSwitcher switcher;
+	int nSel = switcher.Show(this, aItems, aStates, 1);
+	BOOL bRestoreFocus = TRUE;
+
+	if ((nSel >= 0) && (nSel < aOrder.GetSize()))
+	{
+		int nTDC = aOrder[nSel];
+
+		if (nTDC != GetSelToDoCtrl())
+		{
+			if (!m_mgrToDoCtrls.IsLoaded(nTDC))
+				switcher.SetBusy();
+
+			if (SelectToDoCtrl(nTDC, TRUE, Prefs().GetNotifyDueByOnSwitch()))
+				bRestoreFocus = FALSE;
+		}
+		else
+		{
+			PromoteToDoCtrlInMRU(&GetToDoCtrl(nTDC));
+		}
+	}
+
+	switcher.Close(bRestoreFocus);
+}
+
 BOOL CToDoListWnd::VerifyTaskListOpen(int nIndex, BOOL bWantNotifyDueTasks, BOOL bNotifyError)
 {
 	if (m_mgrToDoCtrls.IsLoaded(nIndex))
@@ -9368,6 +9505,8 @@ BOOL CToDoListWnd::SelectToDoCtrl(int nIndex, BOOL bCheckPassword, int nNotifyDu
 		RefreshFilterBarControls();
 		DoDueTaskNotification(GetSelToDoCtrl(), nNotifyDueTasksBy);
 	}
+
+	PromoteToDoCtrlInMRU(&tdcShow);
 
 	return TRUE;
 }
@@ -10183,6 +10322,12 @@ void CToDoListWnd::OnViewNextTasklist()
 	if (GetTDCCount() < 2)
 		return;
 	
+	if (Misc::IsKeyPressed(VK_CONTROL))
+	{
+		ShowTasklistSwitcher();
+		return;
+	}
+
 	int nNext = GetSelToDoCtrl() + 1;
 	
 	if (nNext >= GetTDCCount())
@@ -10201,6 +10346,12 @@ void CToDoListWnd::OnViewPrevTasklist()
 	if (GetTDCCount() < 2)
 		return;
 	
+	if (Misc::IsKeyPressed(VK_CONTROL))
+	{
+		ShowTasklistSwitcher();
+		return;
+	}
+
 	int nPrev = (GetSelToDoCtrl() - 1);
 	
 	if (nPrev < 0)
